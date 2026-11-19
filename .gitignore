@@ -1,0 +1,11 @@
+tests/fixtures/private/*
+!tests/fixtures/private/.gitkeep
+*.fit
+!tests/fixtures/**/*.fit
+__pycache__/
+.venv/
+node_modules/
+dist/
+.env
+_bmad/config.user.toml
+_bmad/custom/config.user.toml
