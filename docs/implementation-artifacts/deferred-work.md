@@ -18,3 +18,19 @@ Append-only: add entries, never rewrite existing ones.
 - source_spec: spec-1-1-ci-regressions.md
   summary: Skip CI runs for documentation-only commits (`paths-ignore`).
   evidence: Every commit, including Markdown-only planning changes, currently spends runner minutes on a full build. Deferred because a run skipped by path never reports its status, which blocks a pull request once the check is required — the interaction has to be settled together with branch protection.
+
+- source_spec: `spec-1-2-refusal-codes.md`
+  summary: Pin the CLI's refusal contract with tests — exit code 2 and a stderr line carrying the code.
+  evidence: No test executes `src/FitFix.Cli/Program.cs`; the only test project references `FitFix.Core` alone, so the exit codes and the printed code could change and CI would stay green. Deferred because `Program.cs` is top-level statements with local functions, so pinning it needs either a process-launching harness or a refactor that extracts the command into a testable type — both larger than this story.
+
+- source_spec: `spec-1-2-refusal-codes.md`
+  summary: Give the code registry the HTTP-status dimension AD-22 needs (400 for input, 413 for FILE_TOO_LARGE, 500 for INTERNAL_ERROR).
+  evidence: Severity answers only the download gate, so the API shell will have to carry its own per-code status mapping — the second list of codes this story set out to remove. Deferred because the shell does not exist until Epic 3 and the mapping belongs with the story that writes `ProblemDetails`.
+
+- source_spec: `spec-1-2-refusal-codes.md`
+  summary: Declare a code for the malformed-multipart refusal AD-13 gives the shell.
+  evidence: The registry claims to be the single source for shell codes but covers only `FILE_TOO_LARGE` and `INTERNAL_ERROR`; a request with the wrong part count has no code for `ProblemDetails.code`. Same reason as above — the shell is Epic 3.
+
+- source_spec: `spec-1-2-refusal-codes.md`
+  summary: `FitRoundTripTests.A_fit_without_records_is_rejected` rejects nothing.
+  evidence: The test writes a one-record activity, reads it back successfully and asserts `Assert.Single(read.Records)`, so the `FIT_HAS_NO_RECORDS` throw site it appears to guard is never reached. Pre-existing, not caused by this story, but it is why that site looked covered. Fixing it needs a FIT file with zero record messages, which `SyntheticFitBuilder` cannot currently write.

@@ -1,4 +1,5 @@
 using FitFix.Core;
+using FitFix.Core.Diagnostics;
 using FitFix.Core.Tests.Fixtures;
 
 namespace FitFix.Core.Tests;
@@ -65,7 +66,7 @@ public class RepairServiceTests
     {
         var result = RepairSyntheticRun();
 
-        Assert.Contains(RepairWarnings.GpsStallDetected, result.Report.Warnings);
+        Assert.Contains(DiagnosticCodes.GpsStallDetected, result.Report.Warnings);
         Assert.NotNull(result.Report.GpsStallAtSeconds);
         // Детектор має знайти збій біля реального моменту, а не за жорстким порогом.
         Assert.InRange(result.Report.GpsStallAtSeconds!.Value, SyntheticRun.GpsFailureSeconds - 30, SyntheticRun.GpsFailureSeconds + 120);
@@ -122,7 +123,7 @@ public class RepairServiceTests
     {
         var result = RepairSyntheticRun(withGpsFailure: false, withAnyGps: false);
 
-        Assert.Contains(RepairWarnings.NoOriginalGps, result.Report.Warnings);
+        Assert.Contains(DiagnosticCodes.NoOriginalGps, result.Report.Warnings);
         Assert.Equal(0, result.Report.MeasuredUntilSeconds);
         Assert.Equal(result.Report.TrackLengthMeters, result.Report.RepairedDistanceMeters, 1.0);
 
@@ -141,7 +142,7 @@ public class RepairServiceTests
 
         var result = RepairService.Repair(run.Original, ReferenceTrack.FromPoints(shifted));
 
-        Assert.Contains(RepairWarnings.TrackFarFromOriginal, result.Report.Warnings);
+        Assert.Contains(DiagnosticCodes.TrackFarFromOriginal, result.Report.Warnings);
     }
 
     [Fact]

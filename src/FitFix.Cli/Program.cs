@@ -1,5 +1,6 @@
 using System.Globalization;
 using FitFix.Core;
+using FitFix.Core.Diagnostics;
 using FitFix.Core.Fit;
 using FitFix.Core.Tracks;
 
@@ -64,14 +65,22 @@ static int Run(string[] args)
         PrintReport(result, output);
         return 0;
     }
-    catch (Exception exception) when (exception is InvalidFitFileException or InvalidTrackFileException or ArgumentException)
+    // Every core refusal carries a code (AD-18). Human text for the codes is Story 1.11;
+    // until then the code itself is the honest output.
+    catch (FitFixException exception)
     {
-        Console.Error.WriteLine($"Помилка: {exception.Message}");
+        Console.Error.WriteLine($"Помилка [{exception.Code}]: {exception.Message}");
         return 2;
     }
     catch (FileNotFoundException exception)
     {
         Console.Error.WriteLine($"Файл не знайдено: {exception.FileName}");
+        return 2;
+    }
+    // A path the file APIs reject outright — an empty argument, for one.
+    catch (ArgumentException exception)
+    {
+        Console.Error.WriteLine($"Хибний шлях до файлу: {exception.Message}");
         return 2;
     }
 }

@@ -1,4 +1,5 @@
 using Dynastream.Fit;
+using FitFix.Core.Diagnostics;
 
 namespace FitFix.Core.Fit;
 
@@ -14,14 +15,26 @@ internal static class FitDecoder
         subscribe(broadcaster);
 
         if (!decoder.IsFIT(stream))
-            throw new InvalidFitFileException("Це не схоже на FIT-файл.");
+            throw new InvalidFitFileException(DiagnosticCodes.NotAFitFile, "The stream does not carry a FIT header.");
 
         stream.Position = 0;
         if (!decoder.CheckIntegrity(stream))
-            throw new InvalidFitFileException("FIT-файл пошкоджено (не пройдено перевірку цілісності).");
+            throw new InvalidFitFileException(
+                DiagnosticCodes.FitIntegrityFailed, "The FIT file failed the SDK integrity check.");
 
         stream.Position = 0;
-        decoder.Read(stream);
+
+        // A file can pass both checks above and still fail mid-read; that refusal needs a
+        // code just as much as the two above (AD-18).
+        try
+        {
+            decoder.Read(stream);
+        }
+        catch (Exception exception) when (exception is FitException or EndOfStreamException)
+        {
+            throw new InvalidFitFileException(
+                DiagnosticCodes.FitIntegrityFailed, "The FIT file could not be read to the end.", exception);
+        }
     }
 
     public static double? ToDegrees(int? semicircles) =>
@@ -29,5 +42,3 @@ internal static class FitDecoder
 
     public static int ToSemicircles(double degrees) => (int)Math.Round(degrees / Geo.SemicirclesToDegrees);
 }
-
-public sealed class InvalidFitFileException(string message) : Exception(message);

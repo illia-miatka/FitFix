@@ -1,3 +1,5 @@
+using FitFix.Core.Diagnostics;
+
 namespace FitFix.Core;
 
 /// <summary>
@@ -17,13 +19,13 @@ public static class Aligner
 
         var positioned = original.Records.Where(r => r.Position is not null).ToArray();
         if (positioned.Length == 0)
-            warnings.Add(RepairWarnings.NoOriginalGps);
+            warnings.Add(DiagnosticCodes.NoOriginalGps);
         else if (track.MinDeviationToWholeTrack(positioned[0].Position!.Value) > options.TrackFarFromOriginalMeters)
-            warnings.Add(RepairWarnings.TrackFarFromOriginal);
+            warnings.Add(DiagnosticCodes.TrackFarFromOriginal);
 
         var stallAt = GpsStallDetector.Detect(original, options);
         if (stallAt is not null)
-            warnings.Add(RepairWarnings.GpsStallDetected);
+            warnings.Add(DiagnosticCodes.GpsStallDetected);
 
         // Перший Якір — старт треку: активність починається там, де починається трек.
         var anchors = new List<Anchor> { new(0, 0, 0) };
@@ -67,7 +69,7 @@ public static class Aligner
             anchors[^1] = new Anchor(elapsed, track.Length, anchors[^1].DeviationMeters);
 
         if (anchors.Count < 4)
-            warnings.Add(RepairWarnings.FewAnchors);
+            warnings.Add(DiagnosticCodes.FewAnchors);
 
         return new Alignment
         {

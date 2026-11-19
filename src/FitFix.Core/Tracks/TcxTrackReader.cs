@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Xml.Linq;
+using FitFix.Core.Diagnostics;
 
 namespace FitFix.Core.Tracks;
 
@@ -9,7 +10,7 @@ public static class TcxTrackReader
     public static IReadOnlyList<TrackPoint> Read(Stream stream)
     {
         ArgumentNullException.ThrowIfNull(stream);
-        var document = XDocument.Load(stream);
+        var document = LoadTcx(stream);
 
         var points = document.Descendants()
             .Where(e => e.Name.LocalName == "Trackpoint")
@@ -19,9 +20,24 @@ public static class TcxTrackReader
             .ToArray();
 
         if (points.Length < 2)
-            throw new InvalidTrackFileException("У TCX менше 2 точок з координатами.");
+            throw new InvalidTrackFileException(
+                DiagnosticCodes.TrackTooFewPoints, "The TCX file carries fewer than 2 positioned points.");
 
         return points;
+    }
+
+    /// <summary>Broken XML is a refusal with a code, not an exception without one (AD-18).</summary>
+    private static XDocument LoadTcx(Stream stream)
+    {
+        try
+        {
+            return XDocument.Load(stream);
+        }
+        catch (System.Xml.XmlException exception)
+        {
+            throw new InvalidTrackFileException(
+                DiagnosticCodes.TrackFormatUnknown, "The TCX file is not well-formed XML.", exception);
+        }
     }
 
     private static TrackPoint? ToTrackPoint(XElement element)
