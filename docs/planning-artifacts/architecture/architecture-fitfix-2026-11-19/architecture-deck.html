@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FitFix — архітектура</title>
+<style>
+  :root{
+    --bg:#0B0D10; --surface:#14171C; --raised:#1B1F26; --border:#262B33;
+    --text:#F2F4F7; --muted:#8A93A3; --accent:#C8F135; --ink:#0B0D10;
+    --original:#7C8594; --estimated:#F5B83D; --heart:#FF5C7A; --danger:#FF5C5C; --info:#5CC8FF;
+    --display:'Unbounded','Manrope',system-ui,-apple-system,'Segoe UI',sans-serif;
+    --body:'Manrope',system-ui,-apple-system,'Segoe UI',sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{background:var(--bg);color:var(--text);font-family:var(--body);font-size:15px;line-height:1.5;
+       font-weight:500;overflow:hidden;-webkit-font-smoothing:antialiased}
+  .deck{height:100vh;display:flex;flex-direction:column}
+  .bar{height:3px;background:var(--border);flex:0 0 auto}
+  .bar > i{display:block;height:100%;background:var(--accent);width:0;transition:width .35s cubic-bezier(.4,0,.2,1)}
+  .stage{flex:1;position:relative;overflow:hidden}
+  .slide{position:absolute;inset:0;padding:clamp(24px,5vh,64px) clamp(20px,6vw,88px);
+         display:none;flex-direction:column;justify-content:center;max-width:1200px;margin:0 auto;overflow-y:auto}
+  .slide.on{display:flex;animation:in .4s cubic-bezier(.4,0,.2,1)}
+  @keyframes in{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+  @media (prefers-reduced-motion:reduce){.slide.on{animation:none}.bar>i{transition:none}}
+  .kicker{font-family:var(--display);font-size:12px;letter-spacing:.14em;text-transform:uppercase;
+          color:var(--accent);margin-bottom:14px;font-weight:700}
+  h1{font-family:var(--display);font-weight:700;letter-spacing:-.02em;font-size:clamp(34px,6vw,68px);line-height:1.04}
+  h2{font-family:var(--display);font-weight:700;letter-spacing:-.02em;font-size:clamp(24px,3.6vw,40px);
+     line-height:1.12;margin-bottom:10px}
+  p.lead{color:var(--muted);font-size:clamp(15px,1.5vw,19px);max-width:68ch;margin-top:14px}
+  .sub{color:var(--muted);margin-bottom:26px;max-width:72ch}
+  .grid{display:grid;gap:16px;margin-top:8px}
+  .g2{grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
+  .g3{grid-template-columns:repeat(auto-fit,minmax(210px,1fr))}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:22px;padding:20px 22px}
+  .card h3{font-family:var(--display);font-size:16px;font-weight:700;margin-bottom:8px}
+  .card p{color:var(--muted);font-size:14px}
+  .hero{background:var(--surface);border:1px solid var(--border);border-radius:22px;padding:30px;
+        position:relative;overflow:hidden}
+  .hero::after{content:'';position:absolute;inset:-40% -10% auto auto;width:460px;height:460px;
+               background:radial-gradient(circle,rgba(200,241,53,.06),transparent 70%);pointer-events:none}
+  .metric{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+  .metric .was{font-family:var(--body);font-weight:800;font-variant-numeric:tabular-nums;
+                font-size:clamp(20px,2.4vw,28px);color:var(--original);text-decoration:line-through}
+  .metric .now{font-family:var(--body);font-weight:800;font-variant-numeric:tabular-nums;
+                font-size:clamp(30px,4.4vw,52px);color:var(--accent)}
+  .metric .lbl{color:var(--muted);font-size:13px;width:100%;margin-top:2px}
+  .pill{display:inline-flex;align-items:center;gap:7px;border-radius:999px;padding:5px 13px;font-size:12px;
+        background:var(--raised);border:1px solid var(--border);color:var(--muted);font-weight:600}
+  .pill b{color:var(--text);font-weight:700}
+  .row{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--border)}
+  th{color:var(--muted);font-weight:600;font-size:12px;letter-spacing:.07em;text-transform:uppercase}
+  td.v{font-variant-numeric:tabular-nums;color:var(--accent);font-weight:700;white-space:nowrap}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em;
+       background:var(--raised);border:1px solid var(--border);border-radius:6px;padding:1px 6px}
+  .tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px}
+  .tab{border:1px solid var(--border);background:var(--surface);color:var(--muted);border-radius:999px;
+       padding:7px 15px;font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+  .tab[aria-selected="true"]{background:var(--accent);color:var(--ink);border-color:var(--accent)}
+  .ads{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));
+       max-height:54vh;overflow-y:auto;padding-right:4px}
+  .ad{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px 16px;
+      cursor:pointer;text-align:left;font:inherit;color:inherit;width:100%}
+  .ad:hover{border-color:var(--accent)}
+  .ad .id{font-family:var(--display);font-size:11px;font-weight:700;color:var(--accent);letter-spacing:.08em}
+  .ad .t{font-weight:700;margin:4px 0 0;font-size:14px}
+  .ad .body{display:none;margin-top:10px;border-top:1px solid var(--border);padding-top:10px}
+  .ad.open .body{display:block}
+  .ad .body div{font-size:13px;color:var(--muted);margin-bottom:7px}
+  .ad .body span{color:var(--estimated);font-weight:700;font-size:11px;letter-spacing:.06em;
+                 text-transform:uppercase;display:block;margin-bottom:2px}
+  ul.clean{list-style:none;display:grid;gap:11px;margin-top:6px}
+  ul.clean li{padding-left:20px;position:relative;color:var(--muted);font-size:14.5px}
+  ul.clean li::before{content:'';position:absolute;left:0;top:8px;width:7px;height:7px;border-radius:2px;background:var(--accent)}
+  ul.clean li b{color:var(--text)}
+  .warn li::before{background:var(--estimated)}
+  .foot{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;
+        padding:12px clamp(20px,6vw,88px);border-top:1px solid var(--border);color:var(--muted);font-size:12px}
+  .nav{display:flex;gap:8px}
+  .nav button{background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:999px;
+              width:34px;height:34px;font:inherit;cursor:pointer;font-size:15px}
+  .nav button:hover{border-color:var(--accent)}
+  svg{max-width:100%;height:auto;display:block}
+  .st{font-family:'Manrope',system-ui,sans-serif;font-size:12.5px;font-weight:600}
+  .sm{font-family:'Manrope',system-ui,sans-serif;font-size:11px;fill:#8A93A3}
+</style>
+</head>
+<body>
+<div class="deck">
+  <div class="bar"><i id="bar"></i></div>
+  <div class="stage" id="stage">
+
+    <section class="slide on">
+      <div class="kicker">Architecture spine · 19 листопада 2026</div>
+      <h1>FitFix</h1>
+      <p class="lead">Сервіс, що повертає пробіжкам із битим GPS правдиву дистанцію й темп.
+      Це контракт узгодженості: він фіксує лише те, у чому два незалежні виконавці можуть розійтися.</p>
+      <div class="row">
+        <span class="pill"><b>24</b> інваріанти</span>
+        <span class="pill"><b>5</b> компонентів</span>
+        <span class="pill">парадигма <b>чисте ядро + тонка оболонка</b></span>
+        <span class="pill">MVP <b>FR-1…FR-12</b></span>
+      </div>
+      <p class="sub" style="margin-top:28px">Стрілки ← → або пробіл для навігації</p>
+    </section>
+
+    <section class="slide">
+      <div class="kicker">Задача</div>
+      <h2>Годинник втратив супутники на 22-й хвилині</h2>
+      <p class="sub">Реальний кейс 19.11.2026, з якого народився проєкт. Пульс тримався 150–159 до кінця,
+      а дистанція «замерзла». FitFix бере час і сенсори з Оригіналу, геометрію — з правильного треку.</p>
+      <div class="hero">
+        <div class="grid g3">
+          <div class="metric"><span class="was">3,91 км</span><span class="now">6,54 км</span><span class="lbl">дистанція</span></div>
+          <div class="metric"><span class="was">9:13</span><span class="now">5:32 /км</span><span class="lbl">темп</span></div>
+          <div class="metric"><span class="now">36:02</span><span class="lbl">час — без змін, як в Оригіналі</span></div>
+        </div>
+      </div>
+      <ul class="clean" style="margin-top:22px">
+        <li><b>Чесний час.</b> Там, де GPS ще збігався з треком, беремо справжнє положення в часі.</li>
+        <li><b>Нічого не губиться.</b> Пульс, потужність, каденс, кола й паузи переносяться з Оригіналу.</li>
+        <li><b>Прозорість.</b> Користувач бачить, яка частина виміряна, а яка розрахована — до завантаження.</li>
+      </ul>
+    </section>
+
+    <section class="slide">
+      <div class="kicker">Парадигма</div>
+      <h2>Чисте ядро, тонка оболонка</h2>
+      <p class="sub">Виправлення — детермінована функція: однакові входи дають однаковий вихід.
+      Усе, що залежить від середовища, живе в оболонці. Напрямок залежностей — односторонній, і це правило збірки, а не стиль.</p>
+      <svg viewBox="0 0 900 290" role="img" aria-label="Схема залежностей: SPA і CLI залежать від оболонок, оболонки від ядра, ядро ні від чого">
+        <rect x="14" y="96" width="150" height="76" rx="16" fill="#14171C" stroke="#262B33"/>
+        <text x="89" y="128" class="st" fill="#F2F4F7" text-anchor="middle">web/ (SPA)</text>
+        <text x="89" y="148" class="sm" text-anchor="middle">React · Leaflet</text>
+        <rect x="248" y="22" width="166" height="76" rx="16" fill="#14171C" stroke="#262B33"/>
+        <text x="331" y="54" class="st" fill="#F2F4F7" text-anchor="middle">FitFix.Api</text>
+        <text x="331" y="74" class="sm" text-anchor="middle">DTO · ліміти · логи</text>
+        <rect x="248" y="178" width="166" height="76" rx="16" fill="#14171C" stroke="#262B33"/>
+        <text x="331" y="210" class="st" fill="#F2F4F7" text-anchor="middle">FitFix.Cli</text>
+        <text x="331" y="230" class="sm" text-anchor="middle">fitfix repair</text>
+        <rect x="500" y="88" width="214" height="92" rx="18" fill="#1B1F26" stroke="#C8F135" stroke-width="1.5"/>
+        <text x="607" y="122" class="st" fill="#C8F135" text-anchor="middle">FitFix.Core</text>
+        <text x="607" y="142" class="sm" text-anchor="middle">Вирівнювання · Відновлення</text>
+        <text x="607" y="160" class="sm" text-anchor="middle">парсери · записувач</text>
+        <rect x="770" y="104" width="116" height="60" rx="14" fill="none" stroke="#262B33" stroke-dasharray="4 4"/>
+        <text x="828" y="139" class="sm" text-anchor="middle">нічого</text>
+        <path d="M164 134 L246 70" stroke="#8A93A3" stroke-width="1.5" marker-end="url(#a)"/>
+        <path d="M414 60 L498 118" stroke="#8A93A3" stroke-width="1.5" marker-end="url(#a)"/>
+        <path d="M414 216 L498 152" stroke="#8A93A3" stroke-width="1.5" marker-end="url(#a)"/>
+        <path d="M714 134 L768 134" stroke="#262B33" stroke-width="1.5" marker-end="url(#a)"/>
+        <text x="200" y="88" class="sm">HTTP</text>
+        <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="#8A93A3"/></marker></defs>
+      </svg>
+      <p class="sub" style="margin-top:18px">Портів і DI на все свідомо немає: один сценарій, один розробник.
+      Розширюваність дає не інтерфейс, а те, що ядро приймає <b>модель</b>, а не байти — тому Strava колись стане ще одним мапером.</p>
+    </section>
+
+    <section class="slide">
+      <div class="kicker">Потік даних</div>
+      <h2>Два запити, нуль стану</h2>
+      <svg viewBox="0 0 900 250" role="img" aria-label="Потік: файли на inspect і repair, ядро мапить у моделі, вирівнює, пише FIT, віддає JSON">
+        <rect x="8" y="92" width="128" height="66" rx="14" fill="#14171C" stroke="#262B33"/>
+        <text x="72" y="120" class="st" fill="#F2F4F7" text-anchor="middle">2 файли</text>
+        <text x="72" y="139" class="sm" text-anchor="middle">FIT + FIT/GPX/TCX</text>
+        <rect x="178" y="24" width="150" height="56" rx="14" fill="#14171C" stroke="#262B33"/>
+        <text x="253" y="48" class="st" fill="#F2F4F7" text-anchor="middle">/api/inspect</text>
+        <text x="253" y="66" class="sm" text-anchor="middle">role: original / track</text>
+        <rect x="178" y="118" width="150" height="56" rx="14" fill="#14171C" stroke="#262B33"/>
+        <text x="253" y="142" class="st" fill="#F2F4F7" text-anchor="middle">/api/repair</text>
+        <text x="253" y="160" class="sm" text-anchor="middle">multipart</text>
+        <rect x="372" y="96" width="156" height="60" rx="14" fill="#1B1F26" stroke="#262B33"/>
+        <text x="450" y="121" class="st" fill="#F2F4F7" text-anchor="middle">моделі ядра</text>
+        <text x="450" y="140" class="sm" text-anchor="middle">OriginalActivity · Track</text>
+        <rect x="566" y="96" width="140" height="60" rx="14" fill="#1B1F26" stroke="#C8F135"/>
+        <text x="636" y="121" class="st" fill="#C8F135" text-anchor="middle">Вирівнювання</text>
+        <text x="636" y="140" class="sm" text-anchor="middle">Якорі → дистанція</text>
+        <rect x="744" y="36" width="148" height="52" rx="14" fill="#14171C" stroke="#262B33"/>
+        <text x="818" y="59" class="st" fill="#F2F4F7" text-anchor="middle">FIT (base64)</text>
+        <text x="818" y="77" class="sm" text-anchor="middle">SM-2: читається назад</text>
+        <rect x="744" y="156" width="148" height="56" rx="14" fill="#14171C" stroke="#262B33"/>
+        <text x="818" y="180" class="st" fill="#F2F4F7" text-anchor="middle">звіт + серії</text>
+        <text x="818" y="198" class="sm" text-anchor="middle">коди, не тексти</text>
+        <path d="M136 112 L176 58" stroke="#8A93A3" stroke-width="1.4" marker-end="url(#b)"/>
+        <path d="M136 136 L176 146" stroke="#8A93A3" stroke-width="1.4" marker-end="url(#b)"/>
+        <path d="M328 146 L370 128" stroke="#8A93A3" stroke-width="1.4" marker-end="url(#b)"/>
+        <path d="M528 126 L564 126" stroke="#8A93A3" stroke-width="1.4" marker-end="url(#b)"/>
+        <path d="M706 116 L742 76" stroke="#C8F135" stroke-width="1.4" marker-end="url(#c)"/>
+        <path d="M706 136 L742 174" stroke="#C8F135" stroke-width="1.4" marker-end="url(#c)"/>
+        <defs>
+          <marker id="b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+            <path d="M0 0 L10 5 L0 10 z" fill="#8A93A3"/></marker>
+          <marker id="c" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+            <path d="M0 0 L10 5 L0 10 z" fill="#C8F135"/></marker>
+        </defs>
+      </svg>
+      <p class="sub" style="margin-top:16px">Кожен файл летить на сервер двічі — на інспект і на виправлення.
+      Це не недогляд, а плата за обіцянку нічого не зберігати: тимчасове сховище між запитами заборонене прямо (AD-3).</p>
+    </section>
+
+    <section class="slide">
+      <div class="kicker">Найважчі рішення</div>
+      <h2>Чотири місця, де був справжній вибір</h2>
+      <div class="grid g2">
+        <div class="card"><h3>Файл вантажиться двічі</h3>
+          <p>Альтернатива — тримати його на сервері між inspect і repair. Це найочевидніша «оптимізація»,
+          яка тихо ламає stateless із PRD. Файли дрібні, сервер локальний — платимо трафіком.</p></div>
+        <div class="card"><h3>Повні серії, без проріджування на сервері</h3>
+          <p>7200 точок на дві години. Проріджений сервером відповідь була б крихітною, але деталі потім
+          нізвідки взяти: stateless забороняє зберігати, тож другий запит означав би повторну обробку.</p></div>
+        <div class="card"><h3>Довгий трек — питання до користувача</h3>
+          <p>Намальоване зайве коло дало б 7,7 км і темп 4:40 — тобто FitFix «покращив» би результат.
+          Але й автообрізання вгадувало б. Тому попереджаємо й даємо вибір; типово беремо обрізану довжину.</p></div>
+        <div class="card"><h3>Синхронна обробка</h3>
+          <p>Бюджет SM-3 — 3 с на дві години; спайк дає 0,1 с на 36 хвилинах. Черга й воркер потребували б
+          стану й зламали б AD-3. Якщо бюджет колись не влізе — це нове явне рішення, а не тихий воркер.</p></div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="kicker">Інваріанти</div>
+      <h2>24 правила, які не вичитати з коду</h2>
+      <p class="sub">Натисни на картку, щоб побачити, яке розходження правило зупиняє.</p>
+      <div class="tabs" id="tabs"></div>
+      <div class="ads" id="ads"></div>
+    </section>
+
+    <section class="slide">
+      <div class="kicker">Межа ядра</div>
+      <h2>Що ядро знає — і чого не знає ніколи</h2>
+      <div class="grid g2">
+        <div class="card"><h3 style="color:var(--accent)">Знає</h3>
+          <ul class="clean">
+            <li>Формати файлів: FIT, GPX, TCX — і визначає їх <b>за вмістом</b>, не за розширенням</li>
+            <li>Геометрію, Якорі, паузи, кола, згладжування, монотонність</li>
+            <li>Усі підсумки активності — середні, максимуми, час у руху</li>
+            <li>Реєстр кодів попереджень і помилок разом із рівнем</li>
+          </ul></div>
+        <div class="card"><h3 style="color:var(--original)">Не знає</h3>
+          <ul class="clean warn">
+            <li>HTTP, <code>HttpContext</code>, <code>IFormFile</code>, ASP.NET — узагалі</li>
+            <li>Змінних середовища й конфігурації</li>
+            <li>Української мови: винятки несуть <b>код</b>, а не текст</li>
+            <li>Хто його викликав — API, CLI чи тест</li>
+          </ul></div>
+      </div>
+      <p class="sub" style="margin-top:22px">Саме через цю межу Strava-інтеграція не зачепить алгоритм:
+      Streams API віддає не файл, а серії — вони мапляться в ту саму <code>OriginalActivity</code>.</p>
+    </section>
+
+    <section class="slide">
+      <div class="kicker">Стек</div>
+      <h2>Версії звірені з реєстрами, не з пам'яті</h2>
+      <div class="grid g2">
+        <div>
+          <table>
+            <tr><th>Бекенд</th><th></th></tr>
+            <tr><td>.NET SDK (LTS)</td><td class="v">10.0.404</td></tr>
+            <tr><td>ASP.NET Core</td><td class="v">10.0</td></tr>
+            <tr><td>Garmin.FIT.Sdk</td><td class="v">21.222.0</td></tr>
+            <tr><td>xunit</td><td class="v">2.9.3</td></tr>
+            <tr><td>Node (лише збірка)</td><td class="v">26 LTS</td></tr>
+          </table>
+        </div>
+        <div>
+          <table>
+            <tr><th>Фронтенд</th><th></th></tr>
+            <tr><td>React / react-dom</td><td class="v">19.3.1</td></tr>
+            <tr><td>Vite</td><td class="v">8.3.8</td></tr>
+            <tr><td>TypeScript</td><td class="v">7.0.2</td></tr>
+            <tr><td>tailwindcss</td><td class="v">4.3.5</td></tr>
+            <tr><td>react-leaflet / recharts</td><td class="v">5.0.0 / 3.11.0</td></tr>
+          </table>
+        </div>
+      </div>
+      <p class="sub" style="margin-top:20px">Головний аргумент за .NET — <b>офіційний Garmin FIT SDK</b>:
+      найризикованіша частина проєкту (запис файлу, який приймає Strava) стоїть на першоджерелі, а не на сторонній бібліотеці.
+      TypeScript 7 — уже нативний компілятор.</p>
+    </section>
+
+    <section class="slide">
+      <div class="kicker">Пакування</div>
+      <h2>Один образ, один origin</h2>
+      <svg viewBox="0 0 900 200" role="img" aria-label="Multi-stage збірка: node будує фронт, dotnet publish, фінальний образ aspnet alpine на порту 8080">
+        <rect x="10" y="24" width="190" height="64" rx="14" fill="#14171C" stroke="#262B33"/>
+        <text x="105" y="48" class="st" fill="#F2F4F7" text-anchor="middle">node:26-alpine</text>
+        <text x="105" y="67" class="sm" text-anchor="middle">tsc --noEmit · vite build</text>
+        <rect x="10" y="112" width="190" height="64" rx="14" fill="#14171C" stroke="#262B33"/>
+        <text x="105" y="136" class="st" fill="#F2F4F7" text-anchor="middle">dotnet/sdk:10.0</text>
+        <text x="105" y="155" class="sm" text-anchor="middle">dotnet publish</text>
+        <rect x="266" y="68" width="170" height="64" rx="14" fill="#1B1F26" stroke="#262B33"/>
+        <text x="351" y="92" class="st" fill="#F2F4F7" text-anchor="middle">publish/ + wwwroot/</text>
+        <text x="351" y="111" class="sm" text-anchor="middle">статика поруч з API</text>
+        <rect x="502" y="60" width="196" height="80" rx="16" fill="#1B1F26" stroke="#C8F135"/>
+        <text x="600" y="88" class="st" fill="#C8F135" text-anchor="middle">aspnet:10.0-alpine</text>
+        <text x="600" y="107" class="sm" text-anchor="middle">користувач app</text>
+        <text x="600" y="124" class="sm" text-anchor="middle">ФС лише для читання</text>
+        <rect x="764" y="68" width="126" height="64" rx="14" fill="#14171C" stroke="#262B33"/>
+        <text x="827" y="92" class="st" fill="#F2F4F7" text-anchor="middle">:8080</text>
+        <text x="827" y="111" class="sm" text-anchor="middle">docker compose up</text>
+        <path d="M200 56 L264 86" stroke="#8A93A3" stroke-width="1.4" marker-end="url(#d)"/>
+        <path d="M200 144 L264 114" stroke="#8A93A3" stroke-width="1.4" marker-end="url(#d)"/>
+        <path d="M436 100 L500 100" stroke="#8A93A3" stroke-width="1.4" marker-end="url(#d)"/>
+        <path d="M698 100 L762 100" stroke="#C8F135" stroke-width="1.4" marker-end="url(#e)"/>
+        <defs>
+          <marker id="d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+            <path d="M0 0 L10 5 L0 10 z" fill="#8A93A3"/></marker>
+          <marker id="e" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+            <path d="M0 0 L10 5 L0 10 z" fill="#C8F135"/></marker>
+        </defs>
+      </svg>
+      <p class="sub" style="margin-top:16px">Статика роздається тим самим ASP.NET Core, що й <code>/api/*</code> —
+      тому CORS не налаштовується взагалі. Файлова система контейнера змонтована лише для читання, і це можливо
+      саме завдяки stateless. Публічного середовища в MVP немає.</p>
+    </section>
+
+    <section class="slide">
+      <div class="kicker">Чесний список</div>
+      <h2>Що ще не вирішено</h2>
+      <div class="grid g2">
+        <div class="card"><h3 style="color:var(--estimated)">Блокує сторі</h3>
+          <ul class="clean warn">
+            <li><b>file_id Оригіналу.</b> Зараз записувач зашиває <code>Manufacturer.Development</code>,
+            тож Strava покаже активність без пристрою. Рішення потрібне до сторі записувача.</li>
+            <li><b>Борг AD-10.</b> Правило вимагає всі пороги в <code>AlignmentOptions</code>, а код тримає
+            чотири константи й параметр за замовчуванням. Правило — цільовий стан, код ще не відповідає.</li>
+          </ul></div>
+        <div class="card"><h3>Може чекати</h3>
+          <ul class="clean">
+            <li><b>Режим «довіряти часу з треку»</b> — інший сценарій, не інша архітектура.</li>
+            <li><b>DP/LIS для ланцюжка Якорів</b> — заміна всередині <code>Aligner</code>, жодного AD не змінює.</li>
+            <li><b>Strava, публічний хостинг, E2E, англійська</b> — кожне з них новий епік.</li>
+          </ul></div>
+      </div>
+      <p class="sub" style="margin-top:20px">Три незалежні рецензії знайшли 22 діри, серед них 4 критичні:
+      контракт API був не визначений, агрегати мали двох власників, <code>/api/inspect</code> ховав два контракти
+      під одним шляхом. Усі закриті новими правилами AD-14…AD-24.</p>
+    </section>
+
+    <section class="slide">
+      <div class="kicker">Далі</div>
+      <h1 style="font-size:clamp(28px,4.4vw,52px)">Нарізка епіків</h1>
+      <p class="lead">Spine готовий як підмурок для <code>bmad-create-epics-and-stories</code>.
+      Кожен епік цитує AD, які його зв'язують, а статус роботи вестиме <code>sprint-status.yaml</code> —
+      той самий файл, який читає dev-агент.</p>
+      <div class="row">
+        <span class="pill">ядро: паузи, кола, підсумки</span>
+        <span class="pill">API: контракт і ліміти</span>
+        <span class="pill">фронт: три стани</span>
+        <span class="pill">пакування й CI</span>
+      </div>
+    </section>
+
+  </div>
+  <div class="foot">
+    <span>FitFix · architecture spine · 24 інваріанти</span>
+    <span class="nav">
+      <button id="prev" aria-label="Назад">←</button>
+      <span id="num" style="min-width:58px;text-align:center;line-height:34px;font-variant-numeric:tabular-nums"></span>
+      <button id="next" aria-label="Далі">→</button>
+    </span>
+  </div>
+</div>
+<script>
+const ADS = [
+  ["AD-1","Ядро не знає про оболонку","Межі","Веб-типи просочуються в алгоритм, і CLI з тестами стають неможливими без HTTP-контексту.","Core не посилається на ASP.NET. Залежності: Api→Core, Cli→Core, Core→нічого. Робота з файлом лише через явний *File(path)."],
+  ["AD-2","Джерело даних стає моделлю ядра","Межі","Strava Streams колись дадуть другий спосіб зібрати активність — в оболонці, і він розійдеться з файловим.","Кожне джерело мапиться в OriginalActivity/ReferenceTrack усередині Core. RepairService приймає лише моделі, ніколи байти."],
+  ["AD-13","Розмір перевіряє оболонка, формат — ядро","Межі","Або перевірка розміру розмазується, або оболонка відкидає валідний GPX через Content-Type: octet-stream.","Оболонка перевіряє лише розмір і кількість частин. Content-Type і розширення не впливають ні на що."],
+  ["AD-4","Коди, а не тексти","Контракт","Українські рядки живуть у двох місцях, і англійська версія стає неможливою.","API віддає стабільні SCREAMING_SNAKE коди. Тексти лише в i18n/uk.ts; ProblemDetails.detail ніколи не несе тексту винятку."],
+  ["AD-5","Серії індексуються записом Оригіналу","Контракт","Сервер прорідує одну серію й не прорідує іншу — hover на графіку показує на карті не ту точку.","Усі серії однакової довжини N. Індекс i = i-й запис. Прогалини — null. Сервер не прорідує."],
+  ["AD-6","Одиниці SI в контракті","Контракт","Кілометри в одному полі, метри в іншому; темп рядком, який неможливо порахувати.","Метри, секунди, м/с, °C, UTC ISO-8601. Темп і локальний час — лише у відрендереному UI."],
+  ["AD-14","Контракт пишеться руками","Контракт","Один серіалізує доменний звіт як є (протягуючи похідний темп), інший пише DTO у формі карток UI — і report.metrics виявляється undefined.","Рукописні record-DTO в Api/Contracts. Доменні типи не серіалізуються ніколи. Похідних значень у контракті немає. Енуми — рядками."],
+  ["AD-15","/api/inspect знає роль файлу","Контракт","FIT валідний і як Оригінал, і як трек — без ролі сервер вгадує, а дві стори чекають різні поля під одним шляхом.","Обов'язковий role (original/track), дискримінована відповідь. Усі числа через ті самі моделі ядра, що й у repair."],
+  ["AD-23","Проріджування лише в UI","Контракт","Клієнт прорідує для карти й графіка по-різному, hover переходить у другий простір індексів.","Проріджена точка зберігає оригінальний індекс. Відповідь стискається; перевищення бюджету — помилка конфігурації, не підстава прорідити на сервері."],
+  ["AD-7","Паузи — це інтервали","Алгоритм","Дві конкурентні моделі пауз (інтервали проти прапорця на записі) дають різну дистанцію.","Pauses — список (Start, End) з event timer stop/start. Під час пауз дистанція не нараховується. «Рухався» — похідне."],
+  ["AD-8","Монотонність — інваріант","Алгоритм","Нова евристика дає локальне спадання дистанції, і Strava рахує відрізки з від'ємним темпом.","Функція час→дистанція монотонно неспадна й закінчується точно на обраній довжині треку. Порушення — дефект, не компроміс."],
+  ["AD-10","Пороги — дані, не константи","Алгоритм","Магічні числа розповзаються; CLI і API беруть різні значення й дають різну дистанцію на тих самих файлах.","Кожен поріг — в AlignmentOptions, включно з дедуплікацією треку. Параметрів за замовчуванням у публічних підписах немає."],
+  ["AD-17","Використана довжина треку","Алгоритм","Зайве коло в треку дало б 7,7 км і темп 4:40 — FitFix «покращив» би результат. Автообрізання ж вгадувало б за користувача.","Ядро рахує і повну довжину, і UsedTrackLength. Типово — обрізана; за підтвердженням користувача клієнт повторює запит із trackLengthMode=full."],
+  ["AD-20","Зони — явні інтервали","Алгоритм","Межа Надійної зони з'являється у трьох місцях, а модель «зона = префікс» ламається, коли GPS відновлюється.","Zones — список (Start, End, Kind). Єдине джерело для смуги, карти й тексту. Припущення про префікс заборонене."],
+  ["AD-21","Згладжування не перетинає паузи","Алгоритм","Ковзне середнє розмазує рух углиб паузи: формально дистанція не зростає, але темп навколо паузи фальшивий.","Вікно обрізається межами пауз. Монотонність перевіряється після згладжування, а не замість нього."],
+  ["AD-16","Агрегати мають одного власника","Файл FIT","Записувач рахує середній пульс одним способом, прев'ю — іншим. Користувач бачить у FitFix 154, у Strava 152.","Усі підсумки рахує ядро в ActivitySummary. Записувач і DTO лише транскрибують. Тест порівнює session-значення зі звітом."],
+  ["AD-19","Структура записаного FIT — інваріант","Файл FIT","Файл, що імпортується сьогодні, перестає імпортуватись після рефакторингу — непомітно.","Порядок: file_id → timer start → records → stop_all → laps → session → activity. Підсумки й local_timestamp — за правилами; тест перевіряє і порядок, і числа."],
+  ["AD-24","Кола Оригіналу — частина моделі","Файл FIT","«Кола перерахує записувач», який структурно не має даних про кола, бо їх ніхто не прочитав.","OriginalActivity несе Laps. Ядро перераховує дистанції за Вирівнюванням; записувач транскрибує. Це MVP, не відкладене."],
+  ["AD-3","Stateless без винятків","Експлуатація","Тимчасове сховище між inspect і repair — найочевидніша оптимізація, яка тихо ламає обіцянку не зберігати файли.","Сервер не пише файли й не тримає їх між запитами. Жодних сесій, кешу результатів, черг. ФС контейнера — лише для читання."],
+  ["AD-9","У логах немає геоданих","Експлуатація","GPS-сліди користувачів потрапляють у логи, звідки їх ніхто не чистить.","Ніколи не логувати координати, вміст файлів та імена файлів. Можна: тривалість, розмір, кількість точок, коди."],
+  ["AD-11","Обробка синхронна","Експлуатація","Черга або воркер неминуче тягнуть за собою стан і ламають AD-3.","/api/repair обробляє синхронно в межах бюджету SM-3. Нова схема — новий AD, а не тихо доданий воркер."],
+  ["AD-12","Один образ, один origin","Експлуатація","Два деплої, конфігурація CORS, розбіжність шляхів між dev і prod.","Api роздає статику і /api/* з одного origin; невідомі шляхи → index.html. У dev Vite проксує /api. CORS не налаштовується."],
+  ["AD-18","Один реєстр кодів, код несе виняток","Експлуатація","Оболонці нічим заповнити ProblemDetails.code, бо винятки несуть лише українські рядки; три списки кодів розходяться.","Коди оголошені одним місцем разом із рівнем. Кожен виняток успадковує FitFixException і несе Code. Тест: коди = ключі словника."],
+  ["AD-22","Усі помилки виходять однаково","Експлуатація","413 від Kestrel повертає порожнє тіло без коду; попередження без рівня змушують UJ-2 проходити гейт, придуманий для UJ-1.","Кожна помилка — ProblemDetails із кодом, включно з FILE_TOO_LARGE (413) та INTERNAL_ERROR (500). Гейт завантаження — лише для рівня blocking."]
+];
+const GROUPS = ["Усі","Межі","Контракт","Алгоритм","Файл FIT","Експлуатація"];
+const tabs = document.getElementById('tabs'), ads = document.getElementById('ads');
+let group = "Усі";
+function renderTabs(){
+  tabs.innerHTML = '';
+  GROUPS.forEach(g=>{
+    const b=document.createElement('button');
+    b.className='tab'; b.textContent = g==='Усі' ? `Усі · ${ADS.length}` : `${g} · ${ADS.filter(a=>a[2]===g).length}`;
+    b.setAttribute('aria-selected', g===group);
+    b.onclick=()=>{group=g;renderTabs();renderAds()};
+    tabs.appendChild(b);
+  });
+}
+function renderAds(){
+  ads.innerHTML='';
+  ADS.filter(a=>group==='Усі'||a[2]===group).forEach(([id,title,,prevents,rule])=>{
+    const b=document.createElement('button');
+    b.className='ad';
+    b.innerHTML=`<span class="id">${id}</span><p class="t">${title}</p>
+      <div class="body"><div><span>Запобігає</span>${prevents}</div><div><span>Правило</span>${rule}</div></div>`;
+    b.onclick=()=>b.classList.toggle('open');
+    ads.appendChild(b);
+  });
+}
+renderTabs(); renderAds();
+
+const slides=[...document.querySelectorAll('.slide')];
+let i=0;
+const bar=document.getElementById('bar'), num=document.getElementById('num');
+function show(n){
+  i=Math.max(0,Math.min(slides.length-1,n));
+  slides.forEach((s,k)=>s.classList.toggle('on',k===i));
+  bar.style.width=((i+1)/slides.length*100)+'%';
+  num.textContent=`${i+1} / ${slides.length}`;
+  slides[i].scrollTop=0;
+}
+document.getElementById('next').onclick=()=>show(i+1);
+document.getElementById('prev').onclick=()=>show(i-1);
+addEventListener('keydown',e=>{
+  if(e.key==='ArrowRight'||e.key===' '||e.key==='PageDown'){e.preventDefault();show(i+1)}
+  if(e.key==='ArrowLeft'||e.key==='PageUp'){e.preventDefault();show(i-1)}
+  if(e.key==='Home')show(0);
+  if(e.key==='End')show(slides.length-1);
+});
+show(0);
+</script>
+</body>
+</html>

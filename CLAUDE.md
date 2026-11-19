@@ -41,12 +41,23 @@
 - [x] PRD — `docs/planning-artifacts/prds/prd-fitfix-2026-11-19/prd.md`
 - [x] UX — `docs/planning-artifacts/ux-designs/ux-fitfix-2026-11-19/{DESIGN,EXPERIENCE}.md`
 - [x] Спайк .NET + Garmin FIT SDK — `docs/spikes/spike-dotnet-fit-sdk-2026-11-19.md`
-- [ ] **Наступне: Architecture** (`bmad-architecture`) → `docs/planning-artifacts/architecture/`
-- [ ] Epics & Stories (`bmad-create-epics-and-stories`)
+- [x] Architecture — `docs/planning-artifacts/architecture/architecture-fitfix-2026-11-19/ARCHITECTURE-SPINE.md`
+- [ ] **Наступне: Epics & Stories** (`bmad-create-epics-and-stories`)
 - [ ] Sprint Planning (`bmad-sprint-planning`)
 - [ ] Build по сторі (`bmad-build`) → Code Review → QA
 
 Не знаєш, що далі — запусти скіл `bmad-help`.
+
+## Архітектура
+
+`ARCHITECTURE-SPINE.md` — зобов'язальний контракт: 24 інваріанти (AD-1…AD-24), кожен із Binds / Prevents / Rule. Сторі мають цитувати AD, які їх зв'язують. Поруч: `.memlog.md` (хронологія рішень, авторитет при поновленні), `reviews/` (три рецензії) і `architecture-deck.html` (презентація).
+
+Чого найлегше не помітити:
+- AD-10: **кожен** поріг живе в `AlignmentOptions`, параметрів за замовчуванням у публічних підписах ядра немає. Наявний код це ще порушує — див. Open Questions у spine.
+- AD-14: доменні типи ядра **ніколи** не серіалізуються; DTO пишуться руками в `FitFix.Api/Contracts`, похідних значень у контракті немає.
+- AD-17: довгий трек не обрізається мовчки — попередження `TRACK_LONGER_THAN_ACTIVITY` і вибір користувача (`trackLengthMode`).
+- AD-18: виняток несе код, не український текст. Тексти лише в `i18n/uk.ts`.
+- AD-9: координат у логах немає ніколи.
 
 ## Узгоджені рішення (для архітектури)
 
