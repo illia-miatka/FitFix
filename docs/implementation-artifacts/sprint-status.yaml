@@ -5,7 +5,7 @@
 # bmad-build оновлює цей файл автоматично, коли бере сторі в роботу.
 
 generated: 11-19-2026 23:03
-last_updated: 11-19-2026 23:38
+last_updated: 11-20-2026 00:02
 project: FitFix
 project_key: NOKEY
 tracking_system: file-system
@@ -14,7 +14,7 @@ story_location: "docs/implementation-artifacts"
 development_status:
   epic-1: in-progress
   1-1-регресії-алгоритму-ловить-ci: done
-  1-2-кожна-відмова-ядра-має-код: backlog
+  1-2-кожна-відмова-ядра-має-код: review
   1-3-жодного-порога-поза-опціями: backlog
   1-4-сміття-не-потрапляє-ні-в-розрахунок-ні-на-карту: backlog
   1-5-паузи-не-нарощують-дистанцію: backlog

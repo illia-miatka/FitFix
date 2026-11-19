@@ -1,4 +1,5 @@
 using Dynastream.Fit;
+using FitFix.Core.Diagnostics;
 
 namespace FitFix.Core.Fit;
 
@@ -28,7 +29,8 @@ public static class FitTrackReader
         });
 
         if (points.Count < 2)
-            throw new InvalidFitFileException("У треку менше 2 точок з координатами.");
+            throw new InvalidTrackFileException(
+                DiagnosticCodes.TrackTooFewPoints, "The FIT track carries fewer than 2 positioned points.");
 
         return points;
     }

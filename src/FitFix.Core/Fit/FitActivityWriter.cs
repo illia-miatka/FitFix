@@ -1,4 +1,5 @@
 using Dynastream.Fit;
+using FitFix.Core.Diagnostics;
 using FitDateTime = Dynastream.Fit.DateTime;
 
 namespace FitFix.Core.Fit;
@@ -15,8 +16,12 @@ public static class FitActivityWriter
         ArgumentNullException.ThrowIfNull(result);
 
         var records = result.Records;
+
+        // Derived from user data, so it carries a code rather than surfacing as an argument error (AD-18).
         if (records.Count < 2)
-            throw new ArgumentException("Для запису потрібно щонайменше 2 записи.", nameof(result));
+            throw new MalformedArgumentException(
+                DiagnosticCodes.ActivityTooFewRecords,
+                $"Writing a FIT activity needs at least 2 records ('{nameof(result)}').");
 
         var start = new FitDateTime(records[0].Timestamp);
         var end = new FitDateTime(records[^1].Timestamp);

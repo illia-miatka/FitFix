@@ -1,4 +1,5 @@
 using FitFix.Core;
+using FitFix.Core.Diagnostics;
 using FitFix.Core.Fit;
 using FitFix.Core.Tests.Fixtures;
 

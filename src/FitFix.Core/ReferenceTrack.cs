@@ -1,3 +1,5 @@
+using FitFix.Core.Diagnostics;
+
 namespace FitFix.Core;
 
 /// <summary>Позиція вздовж Еталонного треку на заданій кумулятивній дистанції.</summary>
@@ -49,8 +51,13 @@ public sealed class ReferenceTrack
             altitudes.Add(point.Altitude);
         }
 
+        // User data, so it carries a code rather than surfacing as an argument error (AD-18).
+        // Its own code: the points existed and collapsed into one place, which is not the
+        // same problem as a file that carried fewer than two positioned points.
         if (points.Count < 2)
-            throw new ArgumentException("Еталонний трек має містити принаймні 2 різні точки.", nameof(source));
+            throw new MalformedArgumentException(
+                DiagnosticCodes.TrackWithoutDistinctPoints,
+                $"The reference track holds no 2 points more than {minSpacingMeters} m apart ('{nameof(source)}').");
 
         var cumulative = new double[points.Count];
         for (var i = 1; i < points.Count; i++)

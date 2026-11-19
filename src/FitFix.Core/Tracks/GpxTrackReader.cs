@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Xml.Linq;
+using FitFix.Core.Diagnostics;
 
 namespace FitFix.Core.Tracks;
 
@@ -9,7 +10,7 @@ public static class GpxTrackReader
     public static IReadOnlyList<TrackPoint> Read(Stream stream)
     {
         ArgumentNullException.ThrowIfNull(stream);
-        var document = XDocument.Load(stream);
+        var document = LoadGpx(stream);
 
         // Ігноруємо namespace: GPX буває 1.0 і 1.1, а експортери додають свої простори.
         var points = document.Descendants()
@@ -20,9 +21,24 @@ public static class GpxTrackReader
             .ToArray();
 
         if (points.Length < 2)
-            throw new InvalidTrackFileException("У GPX менше 2 точок з координатами.");
+            throw new InvalidTrackFileException(
+                DiagnosticCodes.TrackTooFewPoints, "The GPX file carries fewer than 2 positioned points.");
 
         return points;
+    }
+
+    /// <summary>Broken XML is a refusal with a code, not an exception without one (AD-18).</summary>
+    private static XDocument LoadGpx(Stream stream)
+    {
+        try
+        {
+            return XDocument.Load(stream);
+        }
+        catch (System.Xml.XmlException exception)
+        {
+            throw new InvalidTrackFileException(
+                DiagnosticCodes.TrackFormatUnknown, "The GPX file is not well-formed XML.", exception);
+        }
     }
 
     private static TrackPoint? ToTrackPoint(XElement element)
@@ -46,5 +62,3 @@ public static class GpxTrackReader
         return double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var value) ? value : null;
     }
 }
-
-public sealed class InvalidTrackFileException(string message) : Exception(message);

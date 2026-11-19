@@ -1,3 +1,4 @@
+using FitFix.Core.Diagnostics;
 using FitFix.Core.Fit;
 
 namespace FitFix.Core.Tracks;
@@ -35,7 +36,8 @@ public static class TrackReader
             TrackFormat.Fit => FitTrackReader.Read(seekable),
             TrackFormat.Gpx => GpxTrackReader.Read(seekable),
             TrackFormat.Tcx => TcxTrackReader.Read(seekable),
-            _ => throw new InvalidTrackFileException("Невідомий формат треку.")
+            _ => throw new InvalidTrackFileException(
+                DiagnosticCodes.TrackFormatUnknown, $"Unsupported track format: {format}.")
         };
     }
 
@@ -61,7 +63,8 @@ public static class TrackReader
         if (text.Contains("TrainingCenterDatabase", StringComparison.OrdinalIgnoreCase))
             return TrackFormat.Tcx;
 
-        throw new InvalidTrackFileException("Не вдалося розпізнати формат треку: очікується FIT, GPX або TCX.");
+        throw new InvalidTrackFileException(
+            DiagnosticCodes.TrackFormatUnknown, "The track format was not recognised; expected FIT, GPX or TCX.");
     }
 
     private static Stream EnsureSeekable(Stream stream)

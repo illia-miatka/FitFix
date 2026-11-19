@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using FitFix.Core;
+using FitFix.Core.Diagnostics;
 using FitFix.Core.Tests.Fixtures;
 using FitFix.Core.Tracks;
 

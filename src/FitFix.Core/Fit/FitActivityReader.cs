@@ -1,4 +1,5 @@
 using Dynastream.Fit;
+using FitFix.Core.Diagnostics;
 
 namespace FitFix.Core.Fit;
 
@@ -44,7 +45,8 @@ public static class FitActivityReader
         });
 
         if (records.Count == 0)
-            throw new InvalidFitFileException("Це не схоже на FIT-активність: немає record-повідомлень.");
+            throw new InvalidFitFileException(
+                DiagnosticCodes.FitHasNoRecords, "The FIT file carries no record messages, so it is not an activity.");
 
         records.Sort((a, b) => a.Timestamp.CompareTo(b.Timestamp));
 
