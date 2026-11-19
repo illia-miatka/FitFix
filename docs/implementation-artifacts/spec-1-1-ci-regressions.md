@@ -35,6 +35,8 @@ context: ['{project-root}/docs/implementation-artifacts/epic-1-context.md']
 - **Blocking a merge is a repository setting, not a workflow property.** The acceptance criteria only require the check to run and its result to be visible on the commit, which the workflow delivers. Making a red check actually prevent a merge needs `CI / Build and test` marked as a required status check in branch protection or a ruleset on `main` — that is a GitHub setting the repository owner applies, and it is not part of this diff.
 - Frontend steps are deliberately absent; `web/` does not exist until Epic 2, and Story 2.8 adds them.
 
+- **Branch protection applied after review.** `main` now requires the `Build and test` check (GitHub Actions, app id 15368) to pass before a merge, via `PUT /repos/illia-miatka/FitFix/branches/main/protection`. `strict` is off, so a branch does not have to be rebased onto the latest `main` to merge; admin enforcement is off, so the repository owner can still merge in an emergency; force pushes and branch deletion are blocked. Pull request reviews are not required — the project has a single developer.
+
 ## Review Triage Log
 
 Review pass 1 — one blind reviewer with no prior context, 16 findings.
