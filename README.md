@@ -2,12 +2,40 @@
 
 Виправляє тренування з битим GPS: час і сенсори з оригінального FIT + геометрія з правильного треку (FIT/GPX/TCX) → коректний FIT для Strava.
 
-Статус: планування за BMAD (brief, PRD, UX готові; далі — архітектура). Робочий прототип алгоритму — у `prototype/`.
+Навіщо: в умовах війни GPS в Україні часто працює погано, активності виходять зі зламаною дистанцією й темпом — і зникає мотивація тренуватись. FitFix повертає активності правдивий вигляд.
+
+Статус: планування за BMAD (brief, PRD, UX готові). Ядро й CLI на .NET працюють, веб-API і фронтенд — наступні. Деталі — у [CLAUDE.md](CLAUDE.md) і [спайку](docs/spikes/spike-dotnet-fit-sdk-2026-11-19.md).
+
+## Запуск
 
 ```bash
-pip install fitparse fit-tool
-python -I prototype/fix.py ORIGINAL.fit TRACK.fit   # пише out.pkl
-python -I prototype/write.py                       # пише Run_4k_Chabany_fixed.fit
+dotnet test
 ```
 
-Контекст для AI-агентів — у `CLAUDE.md`.
+```bash
+dotnet run --project src/FitFix.Cli -- repair ОРИГІНАЛ.fit ТРЕК.gpx -o РЕЗУЛЬТАТ.fit
+```
+
+Приклад виводу:
+
+```
+Вид спорту:        Running
+Дистанція:         3,90 км → 6,50 км
+Загальний час:     36:00
+Темп:              9:13/км → 5:32/км
+Надійна зона:      до 21:35 (60 % активності), якорів: 1129
+GPS завис на:      21:36
+Попередження:      GPS_STALL_DETECTED
+```
+
+## Структура
+
+| Шлях | Що це |
+|---|---|
+| `src/FitFix.Core` | Ядро: геометрія, вирівнювання, читання/запис FIT, читачі GPX і TCX |
+| `src/FitFix.Cli` | CLI `fitfix repair` |
+| `tests/FitFix.Core.Tests` | xunit-тести + генератор синтетичної пробіжки з битим GPS |
+| `prototype/` | Початковий Python-прототип алгоритму (довідково) |
+| `docs/` | BMAD-артефакти: brief, PRD, UX, спайки |
+
+Реальні файли з GPS-даними — лише в `tests/fixtures/private/` (не потрапляють у репозиторій).

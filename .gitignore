@@ -1,11 +1,27 @@
+# Згенеровані й сторонні FIT-файли не комітимо; публічні фікстури — виняток.
+*.fit
+!tests/fixtures/public/**/*.fit
+
+# Приватні GPS-дані. Це правило має стояти ПІСЛЯ винятків вище, бо в .gitignore
+# перемагає останнє правило, що підійшло.
 tests/fixtures/private/*
 !tests/fixtures/private/.gitkeep
-*.fit
-!tests/fixtures/**/*.fit
+
+# .NET
+bin/
+obj/
+*.user
+*.userosscache
+.vs/
+
+# Python (прототип)
 __pycache__/
 .venv/
+
+# Frontend
 node_modules/
 dist/
+
 .env
 _bmad/config.user.toml
 _bmad/custom/config.user.toml

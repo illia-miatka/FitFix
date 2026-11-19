@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/FitFix.Cli/FitFix.Cli.csproj" />
+    <Project Path="src/FitFix.Core/FitFix.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/FitFix.Core.Tests/FitFix.Core.Tests.csproj" />
+  </Folder>
+</Solution>

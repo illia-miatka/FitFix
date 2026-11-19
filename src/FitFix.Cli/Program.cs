@@ -1,0 +1,118 @@
+using System.Globalization;
+using FitFix.Core;
+using FitFix.Core.Fit;
+using FitFix.Core.Tracks;
+
+// FitFix CLI (PRD FR-12): fitfix repair ORIGINAL TRACK -o OUT
+return Run(args);
+
+static int Run(string[] args)
+{
+    if (args.Length == 0 || args[0] is "-h" or "--help" or "help")
+    {
+        PrintUsage();
+        return args.Length == 0 ? 1 : 0;
+    }
+
+    if (args[0] != "repair")
+    {
+        Console.Error.WriteLine($"Невідома команда: {args[0]}");
+        PrintUsage();
+        return 1;
+    }
+
+    var positional = new List<string>();
+    string? output = null;
+
+    for (var i = 1; i < args.Length; i++)
+    {
+        if (args[i] is "-o" or "--output")
+        {
+            if (i + 1 >= args.Length)
+            {
+                Console.Error.WriteLine("Після -o потрібен шлях до файлу.");
+                return 1;
+            }
+            output = args[++i];
+        }
+        else
+        {
+            positional.Add(args[i]);
+        }
+    }
+
+    if (positional.Count != 2)
+    {
+        Console.Error.WriteLine("Потрібно рівно два файли: ОРИГІНАЛ і ТРЕК.");
+        PrintUsage();
+        return 1;
+    }
+
+    var originalPath = positional[0];
+    var trackPath = positional[1];
+    output ??= Path.Combine(
+        Path.GetDirectoryName(Path.GetFullPath(originalPath)) ?? ".",
+        Path.GetFileNameWithoutExtension(originalPath) + "_fixed.fit");
+
+    try
+    {
+        var original = FitActivityReader.ReadFile(originalPath);
+        var track = TrackReader.ReadReferenceTrackFile(trackPath);
+        var result = RepairService.Repair(original, track);
+
+        FitActivityWriter.WriteFile(output, result);
+        PrintReport(result, output);
+        return 0;
+    }
+    catch (Exception exception) when (exception is InvalidFitFileException or InvalidTrackFileException or ArgumentException)
+    {
+        Console.Error.WriteLine($"Помилка: {exception.Message}");
+        return 2;
+    }
+    catch (FileNotFoundException exception)
+    {
+        Console.Error.WriteLine($"Файл не знайдено: {exception.FileName}");
+        return 2;
+    }
+}
+
+static void PrintUsage()
+{
+    Console.WriteLine("""
+        FitFix — виправляє активності з битим GPS.
+
+        Використання:
+          fitfix repair ОРИГІНАЛ.fit ТРЕК.(fit|gpx|tcx) [-o РЕЗУЛЬТАТ.fit]
+
+        ОРИГІНАЛ — FIT із годинника: джерело часу й сенсорів.
+        ТРЕК     — правильна геометрія маршруту (час у ньому ігнорується).
+        """);
+}
+
+static void PrintReport(RepairResult result, string output)
+{
+    var report = result.Report;
+    var culture = CultureInfo.InvariantCulture;
+
+    Console.WriteLine($"Вид спорту:        {result.Sport}");
+    Console.WriteLine($"Дистанція:         {report.OriginalDistanceMeters / 1000:F2} км → {report.RepairedDistanceMeters / 1000:F2} км");
+    Console.WriteLine($"Загальний час:     {FormatDuration(report.ElapsedSeconds)}");
+    Console.WriteLine($"Темп:              {FormatPace(report.OriginalPaceSecondsPerKm)} → {FormatPace(report.RepairedPaceSecondsPerKm)}");
+    Console.WriteLine($"Надійна зона:      до {FormatDuration(report.MeasuredUntilSeconds)} ({report.MeasuredFraction.ToString("P0", culture)} активності), якорів: {report.AnchorCount}");
+
+    if (report.GpsStallAtSeconds is { } stall)
+        Console.WriteLine($"GPS завис на:      {FormatDuration(stall)}");
+
+    if (report.Warnings.Count > 0)
+        Console.WriteLine($"Попередження:      {string.Join(", ", report.Warnings)}");
+
+    Console.WriteLine($"Записано:          {output}");
+}
+
+static string FormatDuration(double seconds) =>
+    TimeSpan.FromSeconds(seconds).ToString(seconds >= 3600 ? @"h\:mm\:ss" : @"m\:ss");
+
+static string FormatPace(double? secondsPerKm) =>
+    secondsPerKm is null or <= 0 or double.PositiveInfinity
+        ? "—"
+        : $"{(int)(secondsPerKm.Value / 60)}:{(int)(secondsPerKm.Value % 60):D2}/км";

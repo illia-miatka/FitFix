@@ -22,11 +22,13 @@
 6. Нульову потужність після збою GPS прибрано (пристрій рахував її з GPS-швидкості).
 7. Запис FIT через `fit-tool`: file_id, event start/stop_all, record щосекунди, lap, session, activity.
 
-**Відомі хаки, які треба прибрати в продакшн-коді:**
-- Жорсткий cutoff `t > 1720` у fix.py — замінити на вибір найдовшого правдоподібного ланцюжка якорів (DP / LIS з обмеженням швидкості) + детектор завислого GPS.
-- Поріг «1300 с» для нульової потужності — визначати з даних (момент, коли GPS-швидкість оригіналу = 0, а пульс високий).
-- Пороги швидкості залежать від виду спорту (біг 7, вело 25, інше 15 м/с).
-- Паузи (timer stop/start) оригіналу ще не обробляються — дистанція під час пауз не має зростати.
+**Стан портування в `src/FitFix.Core` (спайк 19.11.2026):**
+- [x] Жорсткий cutoff `t > 1720` → `GpsStallDetector` (нерухомість ≤ 15 м протягом ≥ 90 с при ненульовому каденсі).
+- [x] Поріг «1300 с» для нульової потужності → локальне правило: власна дистанція пристрою не зросла за останні 10 с.
+- [x] Пороги швидкості за видом спорту → `AlignmentOptions.ForSport` (біг 7, вело 25, інше 15 м/с).
+- [ ] Вибір найдовшого правдоподібного ланцюжка якорів (DP / LIS) — зараз жадібний набір.
+- [ ] Паузи (timer stop/start) оригіналу — дистанція під час пауз не має зростати (FR-5).
+- [ ] Кола (laps) оригіналу — зараз пишемо одне коло на всю активність (FR-6).
 
 Урок (SM-C1 у PRD): поріг якоря 35 м — погано, алгоритм чіпляється за сміття.
 
@@ -38,6 +40,7 @@
 - [x] Product Brief — `docs/planning-artifacts/briefs/brief-fitfix-2026-11-19/product-brief.md`
 - [x] PRD — `docs/planning-artifacts/prds/prd-fitfix-2026-11-19/prd.md`
 - [x] UX — `docs/planning-artifacts/ux-designs/ux-fitfix-2026-11-19/{DESIGN,EXPERIENCE}.md`
+- [x] Спайк .NET + Garmin FIT SDK — `docs/spikes/spike-dotnet-fit-sdk-2026-11-19.md`
 - [ ] **Наступне: Architecture** (`bmad-architecture`) → `docs/planning-artifacts/architecture/`
 - [ ] Epics & Stories (`bmad-create-epics-and-stories`)
 - [ ] Sprint Planning (`bmad-sprint-planning`)
@@ -50,14 +53,17 @@
 - Формат: повноцінний проєкт у репо — фронтенд + бекенд API + Docker. Strava-інтеграція — окремий епік **після** MVP (Strava API не віддає оригінальний FIT → відтворювати зі Streams; заливка через Uploads API).
 - Еталонний трек: FIT, GPX, TCX. Малювання маршруту на карті — пізніше.
 - Stateless: файли не зберігаються.
-- Запропонований стек (перевірені версії на 2026-11-19, ще не зафіксовано в architecture):
-  - Backend: Python 3.13, FastAPI 0.165, uvicorn 0.54, python-multipart, fitparse 1.2 (читання), fit-tool 0.9.17 (запис), gpxpy 1.6.2, TCX через ElementTree. Пакет `fitfix` (чисте ядро) + `fitfix.api` + CLI `fitfix repair ORIGINAL TRACK -o OUT`.
-  - Frontend: React 19, Vite 8, TypeScript, Tailwind 4 (`@tailwindcss/vite`), react-leaflet 5 + Leaflet 1.9 (темна підкладка CARTO), Recharts 3, lucide-react, шрифти `@fontsource/unbounded` + `@fontsource/manrope`.
-  - Один Docker-образ: збірка фронту → статика роздається FastAPI. `docker compose up`.
+- Стек (вибрано 19.11.2026, перевірено спайком):
+  - Backend: **.NET 10** (LTS; локально SDK 10.0.302), ASP.NET Core Minimal API (ще не створено), **`Garmin.FIT.Sdk` 21.222.0** — офіційний Garmin FIT SDK, читання й запис. GPX/TCX — `System.Xml.Linq`. Формат треку визначається за вмістом файлу.
+  - Проєкти: `src/FitFix.Core` (чисте ядро, без вебу), `src/FitFix.Cli` (`fitfix repair ORIGINAL TRACK -o OUT`), `tests/FitFix.Core.Tests` (xunit). Далі — `src/FitFix.Api`.
+  - Frontend: React 19, Vite, TypeScript, Tailwind 4 (`@tailwindcss/vite`), react-leaflet 5 + Leaflet 1.9 (темна підкладка CARTO), Recharts 3, lucide-react, шрифти `@fontsource/unbounded` + `@fontsource/manrope`. **Node локально ще не встановлений.**
+  - Один Docker-образ: збірка фронту → статика роздається ASP.NET Core. `docker compose up`. Публічного хостингу в MVP немає.
   - API (чернетка): `POST /api/inspect` (метадані одного файлу), `POST /api/repair` (multipart: original, track → JSON-звіт + FIT у base64).
 - Дизайн: темний графіт, один лаймовий акцент `#C8F135` для виправленого треку, пунктир `#7C8594` для оригіналу, `#F5B83D` для розрахованої зони. Не використовувати помаранчевий Strava-брендинг.
 
 ## Конвенції
 
-- Тести: pytest; синтетичні фікстури генерувати кодом, реальні файли — лише з `tests/fixtures/private/` (тест пропускається, якщо їх нема).
-- Python-скрипти, що читають завантажені файли, запускати з `python -I`.
+- Тести: `dotnet test`; синтетичні фікстури генерувати кодом (`tests/FitFix.Core.Tests/Fixtures/SyntheticRun.cs`), реальні файли — лише з `tests/fixtures/private/` (тест тихо виходить, якщо їх нема).
+- Код англійською, XML-доки й коментарі українською, у коментарях посилатись на FR/SM з PRD.
+- `prototype/` лишається довідковим Python-кодом; запускати з `python -I`.
+- `.gitignore`: приватна тека виключається **останнім** правилом — у .gitignore перемагає останнє правило, що підійшло, і попередній виняток `!tests/fixtures/**/*.fit` повертав реальні GPS-файли в індекс.
