@@ -1,0 +1,51 @@
+name: CI
+
+# Story 1.1: every push is checked, so the rewrites in the rest of Epic 1
+# cannot silently break a result that is already verified by tests.
+# Frontend steps (npm ci, tsc --noEmit, vite build) are added in Story 2.8,
+# once web/ exists.
+
+on:
+  push:
+  pull_request:
+    branches: [main]
+
+# A story branch with an open PR would otherwise run twice per push: `push`
+# reports `refs/heads/<branch>` while `pull_request` reports
+# `refs/pull/<n>/merge`, so the group has to collapse both onto the PR number.
+# On `main` nothing is superseded — every commit there keeps its own run.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Build and test
+    runs-on: ubuntu-latest
+    # The suite finishes in seconds; anything near this is a hang, not a slow run.
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          # Follow the same pin as local builds instead of a second source of truth.
+          global-json-file: global.json
+
+      - name: Report the resolved SDK
+        run: dotnet --info
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore --configuration Release
+
+      - name: Test
+        run: dotnet test --no-build --configuration Release --verbosity normal
