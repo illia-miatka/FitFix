@@ -1,0 +1,47 @@
+# Sprint status for FitFix — generated from docs/planning-artifacts/epics.md
+# Statuses: epic = backlog | in-progress | done
+#           story = backlog | ready-for-dev | in-progress | review | done
+#           retrospective = optional | done
+# bmad-build оновлює цей файл автоматично, коли бере сторі в роботу.
+
+generated: 11-19-2026 23:03
+last_updated: 11-19-2026 23:06
+project: FitFix
+project_key: NOKEY
+tracking_system: file-system
+story_location: "docs/implementation-artifacts/stories"
+
+development_status:
+  epic-1: backlog
+  1-1-регресії-алгоритму-ловить-ci: backlog
+  1-2-кожна-відмова-ядра-має-код: backlog
+  1-3-жодного-порога-поза-опціями: backlog
+  1-4-сміття-не-потрапляє-ні-в-розрахунок-ні-на-карту: backlog
+  1-5-паузи-не-нарощують-дистанцію: backlog
+  1-6-кола-оригіналу-переживають-виправлення: backlog
+  1-7-підсумки-рахує-одне-місце: backlog
+  1-8-задовгий-трек-не-завищує-темп: backlog
+  1-9-зони-стають-явними-інтервалами: backlog
+  1-10-виправлений-файл-має-сталу-структуру-і-правильний-локальний: backlog
+  1-11-cli-показує-повний-звіт: backlog
+  epic-1-retrospective: optional
+
+  epic-2: backlog
+  2-1-будь-яка-помилка-приходить-у-вигляді-який-інтерфейс-зможе-по: backlog
+  2-2-сервіс-розповідає-про-щойно-вибраний-файл: backlog
+  2-3-сервіс-повертає-виправлену-активність: backlog
+  2-4-сторінка-яка-пояснює-себе-за-десять-секунд: backlog
+  2-5-дві-зони-які-показують-що-саме-я-вибрав: backlog
+  2-6-забрати-виправлений-файл: backlog
+  2-7-помилки-говорять-людською-мовою: backlog
+  2-8-усе-піднімається-однією-командою: backlog
+  epic-2-retrospective: optional
+
+  epic-3: backlog
+  3-1-побачити-що-змінилось-за-дві-секунди: backlog
+  3-2-побачити-справжній-маршрут-на-карті: backlog
+  3-3-побачити-де-gps-брехав: backlog
+  3-4-знайти-на-карті-те-що-бачу-на-графіку: backlog
+  3-5-зрозуміти-попередження-і-вирішити-щодо-довгого-треку: backlog
+  3-6-подивитись-результат-із-телефона: backlog
+  epic-3-retrospective: optional

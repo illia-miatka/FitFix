@@ -5,3 +5,8 @@
 #
 # [agents.bmad-agent-pm]
 # description = "Prefers short, bulleted PRDs over narrative drafts."
+
+[core]
+# Pinned override: project artifacts are written in English.
+# Conversation language stays Ukrainian (see config.user.toml).
+document_output_language = "English"
