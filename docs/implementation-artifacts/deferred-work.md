@@ -50,3 +50,23 @@ Append-only: add entries, never rewrite existing ones.
 - source_spec: `spec-1-3-thresholds-in-options.md`
   summary: The spine's open question on AD-10 violations and the matching note in CLAUDE.md are stale — this story closed them.
   evidence: `ARCHITECTURE-SPINE.md` still carries "Чи порушення AD-10 у наявному коді виправляємо окремою сторі — Відкрите", naming `minSpacingMeters` and the four constants, and CLAUDE.md still says the existing code violates AD-10. Both are now wrong. Deferred rather than patched because the fix edits planning and agent-context files, which this workflow keeps out of a story's diff.
+
+- source_spec: `spec-1-4-discard-garbage-points.md`
+  summary: `/api/inspect` must clean the series itself, or cleaning has to move to the reading boundary.
+  evidence: Cleaning lives at the top of `RepairService.Repair`, so every repair inherits it — but AD-15's second entry point reads a file and builds a preview series without repairing, and would draw a teleport on the map, against AD-25's "before any preview series". `GpsCleaner` is public, so the inspect story can call it; this entry exists so that obligation is not discovered late.
+
+- source_spec: `spec-1-4-discard-garbage-points.md`
+  summary: The spine's conventions table still mandates Ukrainian XML docs and comments.
+  evidence: `ARCHITECTURE-SPINE.md` says code comments are Ukrainian, which every comment written since 2026-11-19 contradicts under the newer CLAUDE.md rule that artifacts are English. The binding contract should be updated to match, together with the stale AD-10 open question already recorded above.
+
+- source_spec: `spec-1-4-discard-garbage-points.md`
+  summary: Run the cleaner against the real 2026-11-19 pair once the private fixtures are in place.
+  evidence: `tests/fixtures/private/` is empty on this machine, so `PrivateFixtureTests` exits quietly and the cleaner has never seen `Run_4k_Chabany.fit`. A non-zero discarded count on that file would be new information about the original case, and the only way to get it is to run it where the files are.
+
+- source_spec: `spec-1-4-discard-garbage-points.md`
+  summary: AD-25 in the spine no longer describes the cleaning rule that shipped, and CLAUDE.md still counts 24 invariants.
+  evidence: AD-25 states the plain rule — a position is discarded when the speed to it exceeds the sport maximum — with no judging window, no leading-agreement vote and no stale bound, all three of which review measured as necessary. The binding contract should say what the code does; this is larger than the spine's other stale notes already recorded above, because a future story would re-derive the wrong rule from it. CLAUDE.md's "24 інваріанти (AD-1…AD-24)" predates AD-25.
+
+- source_spec: `spec-1-4-discard-garbage-points.md`
+  summary: `ImpossibleSpeedJudgedOverSeconds` is the same for every sport.
+  evidence: The judging window multiplies the sport cap, so one 1 Hz step may be 128 m for cycling and 78 m for `Other`, against 38 m for running. Nothing is known to be wrong, but `ForSport` tunes the cap and not the window, so the per-sport argument is half-applied and no measurement says what cycling's per-step allowance should be. Worth revisiting once a real ride with broken GPS exists to measure against.

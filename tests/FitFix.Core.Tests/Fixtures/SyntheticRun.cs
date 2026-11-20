@@ -36,6 +36,89 @@ public sealed class SyntheticRun
 
     public ReferenceTrack ReferenceTrack => ReferenceTrack.FromPoints(TrackPoints, Options);
 
+    /// <summary>The 0,0 position a watch emits when it reports a fix it does not have.</summary>
+    public static GeoPoint NullIsland => new(0, 0);
+
+    /// <summary>
+    /// A point <paramref name="kilometres"/> from the run's start on the given bearing (0° north,
+    /// 90° east), so a spike can be placed in any direction rather than always northwards. A
+    /// distance that pushes the planar offset past a pole is refused: a latitude outside ±90 is
+    /// not a place, and a test that asked for one would be measuring nothing.
+    /// </summary>
+    public static GeoPoint FarAway(double kilometres, double bearingDegrees)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(kilometres);
+
+        var radians = bearingDegrees * Math.PI / 180.0;
+        var point = Offset(
+            eastMeters: kilometres * 1000 * Math.Sin(radians),
+            northMeters: kilometres * 1000 * Math.Cos(radians));
+
+        if (Math.Abs(point.Latitude) > 90)
+            throw new ArgumentOutOfRangeException(
+                nameof(kilometres),
+                kilometres,
+                $"{kilometres:F0} km on bearing {bearingDegrees:F0}° leaves the latitude range.");
+
+        return point;
+    }
+
+    /// <summary>
+    /// A point offset from the run's start, in metres. Public so a test places a position with
+    /// the fixture's own geometry instead of repeating the conversion.
+    /// </summary>
+    public static GeoPoint Offset(double eastMeters, double northMeters)
+    {
+        var latitude = StartLatitude + northMeters / Geo.MetersPerDegreeLatitude;
+        var longitude = StartLongitude
+            + eastMeters / (Geo.MetersPerDegreeLatitude * Math.Cos(StartLatitude * Math.PI / 180.0));
+        return new GeoPoint(latitude, longitude);
+    }
+
+    /// <summary>
+    /// The same run with the position of one record moved somewhere no athlete could have been —
+    /// a watch that teleported for a single record (AD-25). Only that record's coordinates
+    /// change, so every number the suite pins on the untouched run stays comparable.
+    /// </summary>
+    public SyntheticRun WithTeleportAt(int recordIndex, GeoPoint destination) =>
+        WithTeleportBurst(recordIndex, 1, destination);
+
+    /// <summary>
+    /// The same run with <paramref name="records"/> consecutive positions moved to
+    /// <paramref name="destination"/> — the burst a watch emits while it is still looking for a
+    /// fix, which is the case a single look ahead cannot tell from a real start.
+    /// </summary>
+    public SyntheticRun WithTeleportBurst(int firstRecordIndex, int records, GeoPoint destination)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(firstRecordIndex);
+        ArgumentOutOfRangeException.ThrowIfLessThan(records, 1);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(firstRecordIndex + records, Original.Records.Count);
+
+        var spiked = Original.Records.ToArray();
+        for (var index = firstRecordIndex; index < firstRecordIndex + records; index++)
+        {
+            // A record with no position has nothing to teleport, and a test that asked for one
+            // is testing something other than what it believes.
+            if (spiked[index].Position is null)
+                throw new ArgumentException(
+                    $"Record {index} carries no position, so it cannot hold a spike.",
+                    nameof(firstRecordIndex));
+
+            spiked[index] = spiked[index] with
+            {
+                Latitude = destination.Latitude,
+                Longitude = destination.Longitude
+            };
+        }
+
+        return new SyntheticRun
+        {
+            TrackPoints = TrackPoints,
+            TrueRouteLength = TrueRouteLength,
+            Original = Original with { Records = spiked }
+        };
+    }
+
     public static SyntheticRun Create(bool withGpsFailure = true, bool withAnyGps = true)
     {
         var route = BuildRectangleLoop(widthMeters: 1500, heightMeters: 1750, stepMeters: 5);
@@ -138,14 +221,6 @@ public sealed class SyntheticRun
         }
 
         return [.. points];
-    }
-
-    private static GeoPoint Offset(double eastMeters, double northMeters)
-    {
-        var latitude = StartLatitude + northMeters / Geo.MetersPerDegreeLatitude;
-        var longitude = StartLongitude
-            + eastMeters / (Geo.MetersPerDegreeLatitude * Math.Cos(StartLatitude * Math.PI / 180.0));
-        return new GeoPoint(latitude, longitude);
     }
 
     private static double[] Cumulative(GeoPoint[] points)

@@ -8,9 +8,21 @@ namespace FitFix.Core;
 /// </summary>
 public static class Aligner
 {
-    public static Alignment Align(OriginalActivity original, ReferenceTrack track, AlignmentOptions options)
+    /// <summary>
+    /// Builds the alignment from <paramref name="original"/>, the cleaned series (AD-25), while
+    /// the stall detector reads <paramref name="asRecorded"/> — the series as the watch wrote it.
+    /// The detector walks positioned records only, so a blanked burst would bridge its window and
+    /// manufacture a stall that never happened, sending every later anchor into the estimated
+    /// zone. Taking both series is what makes that mistake impossible from the outside.
+    /// </summary>
+    public static Alignment Align(
+        OriginalActivity original,
+        OriginalActivity asRecorded,
+        ReferenceTrack track,
+        AlignmentOptions options)
     {
         ArgumentNullException.ThrowIfNull(original);
+        ArgumentNullException.ThrowIfNull(asRecorded);
         ArgumentNullException.ThrowIfNull(track);
         ArgumentNullException.ThrowIfNull(options);
 
@@ -23,7 +35,7 @@ public static class Aligner
         else if (track.MinDeviationToWholeTrack(positioned[0].Position!.Value) > options.TrackFarFromOriginalMeters)
             warnings.Add(DiagnosticCodes.TrackFarFromOriginal);
 
-        var stallAt = GpsStallDetector.Detect(original, options);
+        var stallAt = GpsStallDetector.Detect(asRecorded, options);
         if (stallAt is not null)
             warnings.Add(DiagnosticCodes.GpsStallDetected);
 
