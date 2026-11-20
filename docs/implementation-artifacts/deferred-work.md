@@ -94,3 +94,11 @@ Append-only: add entries, never rewrite existing ones.
 - source_spec: `spec-1-5-pauses-do-not-inflate.md`
   summary: The suite fails intermittently, and the FIT encoder may not be thread-safe.
   evidence: One run in ten failed with a single test red; nine reruns, including two straight after a full rebuild, were green, and the failing test's name was not captured. Separately, the implementer measured `synthetic_track.fit` coming out with different bytes depending on whether the export test runs alone or the whole suite runs in parallel — three distinct hashes — and reproduced it on an untouched baseline tree, which points at shared state inside the FIT SDK's encoder rather than at any story. That matters beyond the fixture: the API will encode files concurrently (AD-3), so the writer has to be proven safe under parallel use before Epic 2 ships. Until then a red CI run may be this flake rather than a regression.
+
+- source_spec: `spec-1-6-laps-survive.md`
+  summary: Lap distances, timer times and averages are computed in the writer, where AD-16 and AD-24 both forbid arithmetic.
+  evidence: AD-16 says every summary is computed in the core and that the writer and the DTOs transcribe finished values with no arithmetic of their own; AD-24 names `ActivitySummary` as the destination for recomputed lap distances. `ActivitySummary` does not exist yet, and Story 1.6 put the lap arithmetic in `FitActivityWriter` because Story 1.7 is the story that moves it. Half of AD-24 is therefore deferred to 1.7, not satisfied by 1.6 — the spine's own citation should say so.
+
+- source_spec: `spec-1-6-laps-survive.md`
+  summary: A lap boundary between records is measured at the nearest record, which under smart recording can misattribute tens of metres.
+  evidence: The lap's span is written as the athlete's exact instant while its distance is read at the nearest repaired record. At 1 Hz the error is sub-second; with smart recording (a point every 4–10 s) one lap can gain or lose tens of metres against its neighbour, and the written `avg_speed` disagrees slightly with `distance / elapsed`. Interpolating the distance at the exact boundary instant would remove it, at the cost of a lap boundary that no record sits on.

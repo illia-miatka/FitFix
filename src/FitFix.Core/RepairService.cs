@@ -100,6 +100,9 @@ public static class RepairService
             AnchorCount = alignment.Anchors.Count,
             GpsStallAtSeconds = alignment.GpsStallAtSeconds,
             DiscardedPositionCount = discardedPositions,
+            // The laps the writer will transcribe, counted here so the report and the file agree
+            // on how many there are (AD-24).
+            LapCount = cleaned.LapPartition().Count,
             Warnings = WarningsOf(alignment, discardedPositions)
         };
 

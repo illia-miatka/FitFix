@@ -85,6 +85,13 @@ public static class DiagnosticCodes
     /// </summary>
     public const string ActivityWithoutElapsedTime = "ACTIVITY_WITHOUT_ELAPSED_TIME";
 
+    /// <summary>
+    /// The activity's laps outnumber what a FIT file can index. <c>message_index</c> reserves its
+    /// high bits, leaving twelve for the number itself, so a file with more laps than that would
+    /// silently reuse indices — a refusal with a code beats a file nobody can read back (AD-18).
+    /// </summary>
+    public const string ActivityTooManyLaps = "ACTIVITY_TOO_MANY_LAPS";
+
     // --- Errors raised by the shell, declared here so AD-22 reads its codes from one source.
 
     /// <summary>The upload exceeded the shell's size limit (HTTP 413).</summary>
@@ -116,6 +123,7 @@ public static class DiagnosticCodes
         [TrackFormatUnknown] = DiagnosticSeverity.Blocking,
         [ActivityTooFewRecords] = DiagnosticSeverity.Blocking,
         [ActivityWithoutElapsedTime] = DiagnosticSeverity.Blocking,
+        [ActivityTooManyLaps] = DiagnosticSeverity.Blocking,
         [FileTooLarge] = DiagnosticSeverity.Blocking,
         [InternalError] = DiagnosticSeverity.Blocking
     };
