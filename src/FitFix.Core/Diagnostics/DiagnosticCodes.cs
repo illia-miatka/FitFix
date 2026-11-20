@@ -72,6 +72,12 @@ public static class DiagnosticCodes
     /// <summary>The activity to write holds fewer than two records, so it has no duration.</summary>
     public const string ActivityTooFewRecords = "ACTIVITY_TOO_FEW_RECORDS";
 
+    /// <summary>
+    /// Every record of the activity carries the same timestamp, so the activity has no elapsed
+    /// time to spread the track over. A bad file, not a bad argument (AD-18).
+    /// </summary>
+    public const string ActivityWithoutElapsedTime = "ACTIVITY_WITHOUT_ELAPSED_TIME";
+
     // --- Errors raised by the shell, declared here so AD-22 reads its codes from one source.
 
     /// <summary>The upload exceeded the shell's size limit (HTTP 413).</summary>
@@ -99,6 +105,7 @@ public static class DiagnosticCodes
         [TrackWithoutDistinctPoints] = DiagnosticSeverity.Blocking,
         [TrackFormatUnknown] = DiagnosticSeverity.Blocking,
         [ActivityTooFewRecords] = DiagnosticSeverity.Blocking,
+        [ActivityWithoutElapsedTime] = DiagnosticSeverity.Blocking,
         [FileTooLarge] = DiagnosticSeverity.Blocking,
         [InternalError] = DiagnosticSeverity.Blocking
     };

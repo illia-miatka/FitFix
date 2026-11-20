@@ -132,7 +132,7 @@ public class DiagnosticCodesTests
     {
         using var stream = new MemoryStream(Encoding.UTF8.GetBytes(OnePointGpx));
 
-        var exception = Assert.Throws<InvalidTrackFileException>(() => TrackReader.ReadReferenceTrack(stream));
+        var exception = Assert.Throws<InvalidTrackFileException>(() => TrackReader.ReadReferenceTrack(stream, new AlignmentOptions()));
 
         Assert.Equal(DiagnosticCodes.TrackTooFewPoints, exception.Code);
         Assert.True(DiagnosticCodes.IsDeclared(exception.Code));
@@ -143,7 +143,7 @@ public class DiagnosticCodesTests
     {
         using var stream = new MemoryStream(Encoding.UTF8.GetBytes(OnePointTcx));
 
-        var exception = Assert.Throws<InvalidTrackFileException>(() => TrackReader.ReadReferenceTrack(stream));
+        var exception = Assert.Throws<InvalidTrackFileException>(() => TrackReader.ReadReferenceTrack(stream, new AlignmentOptions()));
 
         Assert.Equal(DiagnosticCodes.TrackTooFewPoints, exception.Code);
     }
@@ -165,7 +165,7 @@ public class DiagnosticCodesTests
     {
         using var stream = new MemoryStream(Encoding.UTF8.GetBytes("hello,world\n1,2\n"));
 
-        var exception = Assert.Throws<InvalidTrackFileException>(() => TrackReader.ReadReferenceTrack(stream));
+        var exception = Assert.Throws<InvalidTrackFileException>(() => TrackReader.ReadReferenceTrack(stream, new AlignmentOptions()));
 
         Assert.Equal(DiagnosticCodes.TrackFormatUnknown, exception.Code);
     }
@@ -175,7 +175,7 @@ public class DiagnosticCodesTests
     {
         using var stream = new MemoryStream(Encoding.UTF8.GetBytes(MalformedGpx));
 
-        var exception = Assert.Throws<InvalidTrackFileException>(() => TrackReader.ReadReferenceTrack(stream));
+        var exception = Assert.Throws<InvalidTrackFileException>(() => TrackReader.ReadReferenceTrack(stream, new AlignmentOptions()));
 
         Assert.Equal(DiagnosticCodes.TrackFormatUnknown, exception.Code);
         Assert.IsType<System.Xml.XmlException>(exception.InnerException);
@@ -202,7 +202,7 @@ public class DiagnosticCodesTests
         var duplicated = new TrackPoint(new GeoPoint(50.3, 30.4), 180);
 
         var exception = Assert.Throws<MalformedArgumentException>(
-            () => ReferenceTrack.FromPoints([duplicated, duplicated]));
+            () => ReferenceTrack.FromPoints([duplicated, duplicated], new AlignmentOptions()));
 
         // Its own code: the points existed and the de-duplication collapsed them.
         Assert.Equal(DiagnosticCodes.TrackWithoutDistinctPoints, exception.Code);
@@ -221,9 +221,28 @@ public class DiagnosticCodesTests
             Sport = result.Sport
         };
 
-        var exception = Assert.Throws<MalformedArgumentException>(() => FitActivityWriter.WriteToArray(single));
+        var exception = Assert.Throws<MalformedArgumentException>(() => FitActivityWriter.WriteToArray(single, utcOffsetSeconds: 0));
 
         Assert.Equal(DiagnosticCodes.ActivityTooFewRecords, exception.Code);
+    }
+
+    [Fact]
+    public void An_activity_whose_records_share_one_timestamp_refuses_with_a_code()
+    {
+        var run = SyntheticRun.Create();
+        var frozen = new OriginalActivity
+        {
+            Records = [.. run.Original.Records.Take(5).Select(r => r with { Timestamp = run.Original.StartTime })],
+            Sport = SportKind.Running
+        };
+
+        // Without the refusal the interpolation is left with a single anchor and the activity
+        // surfaces as a bare ArgumentException, which the CLI then reports as a bad path.
+        var exception = Assert.Throws<MalformedArgumentException>(
+            () => RepairService.Repair(frozen, run.ReferenceTrack));
+
+        Assert.Equal(DiagnosticCodes.ActivityWithoutElapsedTime, exception.Code);
+        Assert.True(DiagnosticCodes.IsDeclared(exception.Code));
     }
 
     [Fact]

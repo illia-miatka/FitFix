@@ -68,7 +68,7 @@ public static class Aligner
         else
             anchors[^1] = new Anchor(elapsed, track.Length, anchors[^1].DeviationMeters);
 
-        if (anchors.Count < 4)
+        if (anchors.Count < options.MinimumAnchorCount)
             warnings.Add(DiagnosticCodes.FewAnchors);
 
         return new Alignment

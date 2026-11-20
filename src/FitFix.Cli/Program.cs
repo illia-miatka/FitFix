@@ -2,7 +2,6 @@ using System.Globalization;
 using FitFix.Core;
 using FitFix.Core.Diagnostics;
 using FitFix.Core.Fit;
-using FitFix.Core.Tracks;
 
 // FitFix CLI (PRD FR-12): fitfix repair ORIGINAL TRACK -o OUT
 return Run(args);
@@ -51,17 +50,21 @@ static int Run(string[] args)
 
     var originalPath = positional[0];
     var trackPath = positional[1];
-    output ??= Path.Combine(
-        Path.GetDirectoryName(Path.GetFullPath(originalPath)) ?? ".",
-        Path.GetFileNameWithoutExtension(originalPath) + "_fixed.fit");
-
     try
     {
-        var original = FitActivityReader.ReadFile(originalPath);
-        var track = TrackReader.ReadReferenceTrackFile(trackPath);
-        var result = RepairService.Repair(original, track);
+        // Inside the try: naming the output after the original rejects a bad path here, and the
+        // catch below is the one place a bad path is reported.
+        output ??= Path.Combine(
+            Path.GetDirectoryName(Path.GetFullPath(originalPath)) ?? ".",
+            Path.GetFileNameWithoutExtension(originalPath) + "_fixed.fit");
 
-        FitActivityWriter.WriteFile(output, result);
+        // The composition root is the only place read → align → repair is assembled (AD-10),
+        // so the CLI and the future API cannot disagree on the same two files.
+        var result = RepairPipeline.RepairFiles(originalPath, trackPath);
+
+        // Story 1.10 takes the offset from the original activity; until then local time is UTC.
+        const int utcOffsetSeconds = 0;
+        FitActivityWriter.WriteFile(output, result, utcOffsetSeconds);
         PrintReport(result, output);
         return 0;
     }
@@ -75,6 +78,13 @@ static int Run(string[] args)
     catch (FileNotFoundException exception)
     {
         Console.Error.WriteLine($"Файл не знайдено: {exception.FileName}");
+        return 2;
+    }
+    // A directory that does not exist (`-o /nope/out.fit`) or a file the user may not read:
+    // a problem with the path, not with the activity, so one message serves both.
+    catch (Exception exception) when (exception is DirectoryNotFoundException or UnauthorizedAccessException)
+    {
+        Console.Error.WriteLine($"Немає доступу до файлу або теки: {exception.Message}");
         return 2;
     }
     // A path the file APIs reject outright — an empty argument, for one.

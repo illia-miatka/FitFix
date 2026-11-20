@@ -10,7 +10,12 @@ namespace FitFix.Core.Fit;
 /// </summary>
 public static class FitActivityWriter
 {
-    public static void Write(Stream stream, RepairResult result, int utcOffsetSeconds = 0)
+    /// <summary>
+    /// Writes the repaired activity. <paramref name="utcOffsetSeconds"/> is stated by the caller
+    /// rather than defaulted, so no entry point can inherit a silent zero (AD-10); Story 1.10
+    /// takes the real offset from the original activity.
+    /// </summary>
+    public static void Write(Stream stream, RepairResult result, int utcOffsetSeconds)
     {
         ArgumentNullException.ThrowIfNull(stream);
         ArgumentNullException.ThrowIfNull(result);
@@ -45,13 +50,15 @@ public static class FitActivityWriter
         encoder.Close();
     }
 
-    public static void WriteFile(string path, RepairResult result, int utcOffsetSeconds = 0)
+    /// <inheritdoc cref="Write"/>
+    public static void WriteFile(string path, RepairResult result, int utcOffsetSeconds)
     {
         using var stream = System.IO.File.Create(path);
         Write(stream, result, utcOffsetSeconds);
     }
 
-    public static byte[] WriteToArray(RepairResult result, int utcOffsetSeconds = 0)
+    /// <inheritdoc cref="Write"/>
+    public static byte[] WriteToArray(RepairResult result, int utcOffsetSeconds)
     {
         using var buffer = new MemoryStream();
         Write(buffer, result, utcOffsetSeconds);

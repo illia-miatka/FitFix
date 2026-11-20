@@ -1,3 +1,5 @@
+using FitFix.Core.Diagnostics;
+
 namespace FitFix.Core;
 
 /// <summary>
@@ -6,18 +8,32 @@ namespace FitFix.Core;
 /// </summary>
 public static class RepairService
 {
-    /// <summary>Вікно, на якому перевіряємо, чи рухалась дистанція самого пристрою, с.</summary>
-    private const double DeviceDistanceStallWindowSeconds = 10;
+    /// <summary>
+    /// Repairs the activity with the thresholds that suit its own sport. The overload exists so
+    /// that a caller with nothing to say about the thresholds says so in the signature, instead
+    /// of omitting an optional argument and silently getting different numbers (AD-10).
+    /// </summary>
+    public static RepairResult Repair(OriginalActivity original, ReferenceTrack track)
+    {
+        ArgumentNullException.ThrowIfNull(original);
 
-    /// <summary>Напівширина вікна для оцінки швидкості, записів.</summary>
-    private const int SpeedWindowRecords = 3;
+        return Repair(original, track, AlignmentOptions.ForSport(original.Sport));
+    }
 
-    public static RepairResult Repair(OriginalActivity original, ReferenceTrack track, AlignmentOptions? options = null)
+    /// <summary>Repairs the activity with the given thresholds, the only tuning source (AD-10).</summary>
+    public static RepairResult Repair(OriginalActivity original, ReferenceTrack track, AlignmentOptions options)
     {
         ArgumentNullException.ThrowIfNull(original);
         ArgumentNullException.ThrowIfNull(track);
+        ArgumentNullException.ThrowIfNull(options);
 
-        options ??= AlignmentOptions.ForSport(original.Sport);
+        // No elapsed time means no time axis to spread the track over: the interpolation would
+        // be left with a single anchor. User data, so it refuses with a code (AD-18).
+        if (original.ElapsedSeconds <= 0)
+            throw new MalformedArgumentException(
+                DiagnosticCodes.ActivityWithoutElapsedTime,
+                $"The activity's records span no time at all ('{nameof(original)}').");
+
         var alignment = Aligner.Align(original, track, options);
 
         var records = original.Records;
@@ -29,7 +45,7 @@ public static class RepairService
         Smooth(distances, times, alignment.MeasuredUntilSeconds, options);
         EnforceMonotonicity(distances, track.Length);
 
-        var speeds = ComputeSpeeds(distances, times);
+        var speeds = ComputeSpeeds(distances, times, options);
         var altitudeOffset = ComputeAltitudeOffset(original, track);
 
         var repaired = new List<RepairedRecord>(records.Count);
@@ -47,7 +63,7 @@ public static class RepairService
                 Distance = distances[i],
                 Speed = speeds[i],
                 HeartRate = source.HeartRate,
-                Power = KeepPower(records, i, times, source.Power),
+                Power = KeepPower(records, i, times, source.Power, options),
                 Cadence = source.Cadence,
                 Temperature = source.Temperature
             });
@@ -142,13 +158,13 @@ public static class RepairService
         distances[^1] = trackLength;
     }
 
-    private static double[] ComputeSpeeds(double[] distances, double[] times)
+    private static double[] ComputeSpeeds(double[] distances, double[] times, AlignmentOptions options)
     {
         var speeds = new double[distances.Length];
         for (var i = 0; i < distances.Length; i++)
         {
-            var from = Math.Max(0, i - SpeedWindowRecords);
-            var to = Math.Min(distances.Length - 1, i + SpeedWindowRecords);
+            var from = Math.Max(0, i - options.SpeedWindowHalfWidthRecords);
+            var to = Math.Min(distances.Length - 1, i + options.SpeedWindowHalfWidthRecords);
             var dt = times[to] - times[from];
             speeds[i] = dt > 0 ? Math.Max(0, (distances[to] - distances[from]) / dt) : 0;
         }
@@ -166,10 +182,17 @@ public static class RepairService
     }
 
     /// <summary>
-    /// Нульова потужність, яку пристрій вивів із зупиненої GPS-дистанції, не переноситься (FR-6).
-    /// Критерій локальний: власна дистанція пристрою не зросла за останні 10 с.
+    /// Zero power the device derived from a frozen GPS distance is not carried over (FR-6).
+    /// The criterion is local: the device's own distance did not grow by
+    /// <see cref="AlignmentOptions.DeviceDistanceGrowthMeters"/> within
+    /// <see cref="AlignmentOptions.DeviceDistanceStallWindowSeconds"/>.
     /// </summary>
-    private static ushort? KeepPower(IReadOnlyList<ActivityRecord> records, int index, double[] times, ushort? power)
+    private static ushort? KeepPower(
+        IReadOnlyList<ActivityRecord> records,
+        int index,
+        double[] times,
+        ushort? power,
+        AlignmentOptions options)
     {
         if (power is not 0)
             return power;
@@ -180,9 +203,9 @@ public static class RepairService
 
         for (var j = index - 1; j >= 0; j--)
         {
-            if (times[index] - times[j] > DeviceDistanceStallWindowSeconds)
+            if (times[index] - times[j] > options.DeviceDistanceStallWindowSeconds)
                 break;
-            if (records[j].Distance is { } earlier && current.Value - earlier > 0.5)
+            if (records[j].Distance is { } earlier && current.Value - earlier > options.DeviceDistanceGrowthMeters)
                 return power;
         }
 

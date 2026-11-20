@@ -140,7 +140,7 @@ public class RepairServiceTests
             .Select(p => new TrackPoint(new GeoPoint(p.Position.Latitude + 1.0, p.Position.Longitude + 1.0), p.Altitude))
             .ToArray();
 
-        var result = RepairService.Repair(run.Original, ReferenceTrack.FromPoints(shifted));
+        var result = RepairService.Repair(run.Original, ReferenceTrack.FromPoints(shifted, SyntheticRun.Options));
 
         Assert.Contains(DiagnosticCodes.TrackFarFromOriginal, result.Report.Warnings);
     }
