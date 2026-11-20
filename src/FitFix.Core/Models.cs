@@ -25,8 +25,11 @@ public sealed record ActivityRecord
     public GeoPoint? Position => Latitude is { } lat && Longitude is { } lon ? new GeoPoint(lat, lon) : null;
 }
 
-/// <summary>Оригінал — джерело часу й сенсорів.</summary>
-public sealed class OriginalActivity
+/// <summary>
+/// Оригінал — джерело часу й сенсорів. A record, so cleaning copies it with <c>with</c> and
+/// every member a later story adds — the laps of Story 1.6 — comes along by itself.
+/// </summary>
+public sealed record OriginalActivity
 {
     public required IReadOnlyList<ActivityRecord> Records { get; init; }
     public SportKind Sport { get; init; } = SportKind.Other;

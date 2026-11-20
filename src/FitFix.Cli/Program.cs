@@ -122,6 +122,11 @@ static void PrintReport(RepairResult result, string output)
     if (report.GpsStallAtSeconds is { } stall)
         Console.WriteLine($"GPS завис на:      {FormatDuration(stall)}");
 
+    // Deleted positions are never passed over in silence (AD-25); the coordinates themselves
+    // stay out of the output, as they do out of every log (AD-9).
+    if (report.DiscardedPositionCount > 0)
+        Console.WriteLine($"Відкинуто точок:   {report.DiscardedPositionCount}");
+
     if (report.Warnings.Count > 0)
         Console.WriteLine($"Попередження:      {string.Join(", ", report.Warnings)}");
 

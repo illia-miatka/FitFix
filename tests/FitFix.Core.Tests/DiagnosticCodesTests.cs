@@ -60,6 +60,12 @@ public class DiagnosticCodesTests
         Assert.Equal(DiagnosticSeverity.Info, DiagnosticCodes.SeverityOf(DiagnosticCodes.FewAnchors));
         Assert.False(DiagnosticCodes.IsBlocking(DiagnosticCodes.GpsStallDetected));
         Assert.False(DiagnosticCodes.IsBlocking(DiagnosticCodes.FewAnchors));
+
+        // Throwing away an impossible point improves the result rather than casting doubt on it
+        // (AD-25). Blocking is the enum's zero value, so leaving this unpinned would let the
+        // download gate close on the one code this story adds.
+        Assert.Equal(DiagnosticSeverity.Info, DiagnosticCodes.SeverityOf(DiagnosticCodes.PositionsDiscarded));
+        Assert.False(DiagnosticCodes.IsBlocking(DiagnosticCodes.PositionsDiscarded));
     }
 
     [Fact]
@@ -218,6 +224,7 @@ public class DiagnosticCodesTests
             Records = [result.Records[0]],
             Report = result.Report,
             Alignment = result.Alignment,
+            CleanedOriginal = result.CleanedOriginal,
             Sport = result.Sport
         };
 

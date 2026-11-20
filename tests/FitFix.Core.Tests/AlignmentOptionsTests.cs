@@ -177,6 +177,76 @@ public class AlignmentOptionsTests
     }
 
     [Fact]
+    public void The_judging_window_cleaning_uses_is_read_from_the_options()
+    {
+        // 20 m steps at 1 Hz: impossible at the running cap over one second, ordinary over five.
+        var activity = StraightRun(metersPerSecond: 20, seconds: 300);
+
+        var withDefaults = GpsCleaner.Clean(activity, SyntheticRun.Options);
+        var perSecond = GpsCleaner.Clean(
+            activity,
+            SyntheticRun.Options with { ImpossibleSpeedJudgedOverSeconds = 1 });
+
+        Assert.Equal(0, withDefaults.DiscardedPositionCount);
+        // A one-second window is the arithmetic that was measured to delete real data, so the
+        // threshold has to be the one doing the work here — not a constant inside the cleaner.
+        Assert.True(
+            perSecond.DiscardedPositionCount > 100,
+            $"a one-second window discarded only {perSecond.DiscardedPositionCount} positions");
+    }
+
+    [Fact]
+    public void The_number_of_voters_cleaning_asks_is_read_from_the_options()
+    {
+        // A minute of standing still, then two spikes: the standing positions are one place and
+        // cast no vote, so only a window wide enough to reach the run itself can clear the start.
+        var activity = StandingStartThenSpikes();
+
+        var withDefaults = GpsCleaner.Clean(activity, SyntheticRun.Options);
+        var nearSighted = GpsCleaner.Clean(
+            activity,
+            SyntheticRun.Options with { LeadingAgreementPositions = 1 });
+
+        Assert.Equal(2, withDefaults.DiscardedPositionCount);
+        Assert.True(
+            nearSighted.DiscardedPositionCount > 2,
+            "a single voter cannot see past the spikes, so the standing start goes with them");
+    }
+
+    [Fact]
+    public void How_long_a_stale_reference_vouches_is_read_from_the_options()
+    {
+        // A long run of garbage, then a point 5 km from the last position anyone trusted. The
+        // bound is the only thing refusing it: let the reference vouch for the whole garbage run
+        // and the point is laundered in.
+        var activity = GarbageThenADistantPoint(garbageSeconds: 1_000, metersAway: 5_000);
+
+        var withDefaults = GpsCleaner.Clean(activity, SyntheticRun.Options);
+        var vouchingForever = GpsCleaner.Clean(
+            activity,
+            SyntheticRun.Options with { StaleReferenceVouchesForSeconds = 100_000 });
+
+        Assert.Null(withDefaults.Activity.Records[^1].Position);
+        Assert.NotNull(vouchingForever.Activity.Records[^1].Position);
+    }
+
+    [Fact]
+    public void The_speed_cap_cleaning_judges_by_is_the_sport_profile_and_not_a_constant()
+    {
+        // 100 m steps at 1 Hz: impossible for a runner over any window, ordinary for nothing on
+        // a bicycle either — but the cycling cap over five seconds allows 128 m, and so it stands.
+        var activity = StraightRun(metersPerSecond: 100, seconds: 300);
+
+        var asRunning = GpsCleaner.Clean(activity, AlignmentOptions.ForSport(SportKind.Running));
+        var asCycling = GpsCleaner.Clean(activity, AlignmentOptions.ForSport(SportKind.Cycling));
+
+        Assert.Equal(0, asCycling.DiscardedPositionCount);
+        Assert.True(
+            asRunning.DiscardedPositionCount > 100,
+            $"the running profile discarded only {asRunning.DiscardedPositionCount} of them");
+    }
+
+    [Fact]
     public void A_ride_is_aligned_with_the_cycling_cap_and_not_the_running_one()
     {
         var run = SyntheticRun.Create();
@@ -186,6 +256,13 @@ public class AlignmentOptionsTests
         var derived = RepairService.Repair(ride, track);
         var cycling = RepairService.Repair(ride, track, AlignmentOptions.ForSport(SportKind.Cycling));
         var running = RepairService.Repair(ride, track, AlignmentOptions.ForSport(SportKind.Running));
+
+        // Cleaning must not answer this test for the anchor stage: if it discarded the ride's
+        // positions under the running profile, the comparison below would hold however the
+        // anchor loop behaved, and the cap it exists to pin could be deleted (AD-25).
+        Assert.Equal(0, running.Report.DiscardedPositionCount);
+        Assert.Equal(0, cycling.Report.DiscardedPositionCount);
+        Assert.Equal(0, derived.Report.DiscardedPositionCount);
 
         Assert.Equal(cycling.Report.AnchorCount, derived.Report.AnchorCount);
         Assert.Equal(cycling.Report.MeasuredUntilSeconds, derived.Report.MeasuredUntilSeconds, 0.001);
@@ -209,13 +286,19 @@ public class AlignmentOptionsTests
         using var pipelineTrack = new MemoryStream(trackBytes);
         var throughRoot = RepairPipeline.Repair(pipelineOriginal, pipelineTrack);
 
+        var asCycling = Hand(originalBytes, trackBytes, AlignmentOptions.ForSport(SportKind.Cycling));
+        var asRunning = Hand(originalBytes, trackBytes, AlignmentOptions.ForSport(SportKind.Running));
+
         Assert.Equal(SportKind.Cycling, throughRoot.Sport);
-        Assert.Equal(
-            Hand(originalBytes, trackBytes, AlignmentOptions.ForSport(SportKind.Cycling)).Report.AnchorCount,
-            throughRoot.Report.AnchorCount);
+        Assert.Equal(asCycling.Report.AnchorCount, throughRoot.Report.AnchorCount);
+
+        // Same reason as above: the difference below has to come from the anchor stage, so
+        // cleaning may not have thrown the ride away under the running profile (AD-25).
+        Assert.Equal(0, asRunning.Report.DiscardedPositionCount);
+        Assert.Equal(0, throughRoot.Report.DiscardedPositionCount);
+
         Assert.True(
-            Hand(originalBytes, trackBytes, AlignmentOptions.ForSport(SportKind.Running)).Report.AnchorCount
-                < throughRoot.Report.AnchorCount,
+            asRunning.Report.AnchorCount < throughRoot.Report.AnchorCount,
             "the root must read the sport from the file rather than assume the defaults");
     }
 
@@ -281,6 +364,77 @@ public class AlignmentOptionsTests
         }
 
         return new OriginalActivity { Records = records, Sport = SportKind.Cycling };
+    }
+
+    /// <summary>A straight run east at 1 Hz, every step the same length.</summary>
+    private static OriginalActivity StraightRun(double metersPerSecond, int seconds)
+    {
+        var start = new DateTime(2026, 11, 19, 15, 30, 0, DateTimeKind.Utc);
+        var records = new List<ActivityRecord>(seconds + 1);
+
+        for (var second = 0; second <= seconds; second++)
+            records.Add(new ActivityRecord
+            {
+                Timestamp = start.AddSeconds(second),
+                Latitude = SyntheticRun.Offset(second * metersPerSecond, 0).Latitude,
+                Longitude = SyntheticRun.Offset(second * metersPerSecond, 0).Longitude,
+                Cadence = 85
+            });
+
+        return new OriginalActivity { Records = records, Sport = SportKind.Running };
+    }
+
+    /// <summary>A short run, then nothing but teleports, then one point far from the last valid.</summary>
+    private static OriginalActivity GarbageThenADistantPoint(int garbageSeconds, double metersAway)
+    {
+        var start = new DateTime(2026, 11, 19, 15, 30, 0, DateTimeKind.Utc);
+        var teleport = SyntheticRun.FarAway(kilometres: 2_000, bearingDegrees: 90);
+        var records = new List<ActivityRecord>();
+
+        for (var second = 0; second <= 10; second++)
+            records.Add(Positioned(start.AddSeconds(second), SyntheticRun.Offset(second * 3.0, 0)));
+
+        for (var second = 11; second <= 10 + garbageSeconds; second++)
+            records.Add(Positioned(start.AddSeconds(second), teleport));
+
+        records.Add(Positioned(start.AddSeconds(11 + garbageSeconds), SyntheticRun.Offset(metersAway, 0)));
+        return new OriginalActivity { Records = records, Sport = SportKind.Running };
+    }
+
+    private static ActivityRecord Positioned(DateTime timestamp, GeoPoint position) => new()
+    {
+        Timestamp = timestamp,
+        Latitude = position.Latitude,
+        Longitude = position.Longitude,
+        Cadence = 85
+    };
+
+    /// <summary>A minute standing at the start line, two bad fixes, then a 3 m/s run.</summary>
+    private static OriginalActivity StandingStartThenSpikes()
+    {
+        var start = new DateTime(2026, 11, 19, 15, 30, 0, DateTimeKind.Utc);
+        var spike = SyntheticRun.FarAway(kilometres: 2_000, bearingDegrees: 90);
+        var records = new List<ActivityRecord>();
+
+        for (var second = 0; second <= 360; second++)
+        {
+            var position = second switch
+            {
+                61 or 62 => spike,
+                <= 60 => SyntheticRun.Offset(0, 0),
+                _ => SyntheticRun.Offset((second - 62) * 3.0, 0)
+            };
+
+            records.Add(new ActivityRecord
+            {
+                Timestamp = start.AddSeconds(second),
+                Latitude = position.Latitude,
+                Longitude = position.Longitude,
+                Cadence = 85
+            });
+        }
+
+        return new OriginalActivity { Records = records, Sport = SportKind.Running };
     }
 
     private static RepairResult Hand(byte[] originalBytes, byte[] trackBytes, AlignmentOptions options)

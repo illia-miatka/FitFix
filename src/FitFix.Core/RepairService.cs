@@ -34,19 +34,26 @@ public static class RepairService
                 DiagnosticCodes.ActivityWithoutElapsedTime,
                 $"The activity's records span no time at all ('{nameof(original)}').");
 
-        var alignment = Aligner.Align(original, track, options);
+        // Cleaning comes first, so the compatibility check (FR-3), the anchor search and every
+        // series a shell will show read the same cleaned original (AD-25). It is done here and
+        // nowhere else, which is how every entry point inherits it.
+        var (cleaned, discardedPositions) = GpsCleaner.Clean(original, options);
 
-        var records = original.Records;
+        // The alignment works from the cleaned series; the stall detector inside it reads the
+        // original as it arrived, because blanking a burst would otherwise look like a stall.
+        var alignment = Aligner.Align(cleaned, original, track, options);
+
+        var records = cleaned.Records;
         var times = new double[records.Count];
         for (var i = 0; i < records.Count; i++)
-            times[i] = original.SecondsFromStart(records[i]);
+            times[i] = cleaned.SecondsFromStart(records[i]);
 
         var distances = InterpolateDistances(times, alignment.Anchors);
         Smooth(distances, times, alignment.MeasuredUntilSeconds, options);
         EnforceMonotonicity(distances, track.Length);
 
         var speeds = ComputeSpeeds(distances, times, options);
-        var altitudeOffset = ComputeAltitudeOffset(original, track);
+        var altitudeOffset = ComputeAltitudeOffset(cleaned, track);
 
         var repaired = new List<RepairedRecord>(records.Count);
         for (var i = 0; i < records.Count; i++)
@@ -71,6 +78,8 @@ public static class RepairService
 
         var report = new RepairReport
         {
+            // The device's own distance field, which cleaning never touches: the "before" number
+            // has to stay what the user saw in Strava.
             OriginalDistanceMeters = original.RecordedDistance ?? 0,
             RepairedDistanceMeters = distances[^1],
             TrackLengthMeters = track.Length,
@@ -78,7 +87,8 @@ public static class RepairService
             MeasuredUntilSeconds = alignment.MeasuredUntilSeconds,
             AnchorCount = alignment.Anchors.Count,
             GpsStallAtSeconds = alignment.GpsStallAtSeconds,
-            Warnings = alignment.Warnings
+            DiscardedPositionCount = discardedPositions,
+            Warnings = WarningsOf(alignment, discardedPositions)
         };
 
         return new RepairResult
@@ -86,9 +96,21 @@ public static class RepairService
             Records = repaired,
             Report = report,
             Alignment = alignment,
+            CleanedOriginal = cleaned,
             Sport = original.Sport
         };
     }
+
+    /// <summary>
+    /// The codes the report carries: the alignment's own, preceded by <c>POSITIONS_DISCARDED</c>
+    /// when cleaning threw anything away (AD-18). Cleaning runs before the alignment, so its code
+    /// comes first, and a shell can say why the map lost a point instead of leaving
+    /// <c>NO_ORIGINAL_GPS</c> as the only hint after a full discard.
+    /// </summary>
+    private static IReadOnlyList<string> WarningsOf(Alignment alignment, int discardedPositions) =>
+        discardedPositions > 0
+            ? [DiagnosticCodes.PositionsDiscarded, .. alignment.Warnings]
+            : alignment.Warnings;
 
     /// <summary>Лінійна інтерполяція «час → дистанція» між Якорями.</summary>
     private static double[] InterpolateDistances(double[] times, IReadOnlyList<Anchor> anchors)

@@ -40,6 +40,13 @@ public static class DiagnosticCodes
     public const string FewAnchors = "FEW_ANCHORS";
 
     /// <summary>
+    /// Positions of the original were physically impossible and were discarded before anything
+    /// read them (AD-25). The count is in the report; this code is what tells a shell to say so,
+    /// and what distinguishes an original cleaned down to nothing from one that never had GPS.
+    /// </summary>
+    public const string PositionsDiscarded = "POSITIONS_DISCARDED";
+
+    /// <summary>
     /// The track is longer than the elapsed time can plausibly cover (AD-17). Confirming it
     /// changes the result: the client repeats the request with <c>trackLengthMode=full</c>.
     /// </summary>
@@ -94,6 +101,9 @@ public static class DiagnosticCodes
         [NoOriginalGps] = DiagnosticSeverity.Info,
         [GpsStallDetected] = DiagnosticSeverity.Info,
         [FewAnchors] = DiagnosticSeverity.Info,
+        // Throwing away an impossible point improves the result rather than casting doubt on it,
+        // so it tells the user what happened and leaves the download alone.
+        [PositionsDiscarded] = DiagnosticSeverity.Info,
         [TrackFarFromOriginal] = DiagnosticSeverity.Blocking,
         [TrackLongerThanActivity] = DiagnosticSeverity.Blocking,
 

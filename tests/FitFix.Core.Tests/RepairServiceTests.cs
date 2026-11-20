@@ -73,6 +73,41 @@ public class RepairServiceTests
     }
 
     [Fact]
+    public void Cleaning_a_mid_activity_burst_does_not_invent_a_stall()
+    {
+        // The athlete runs out and back, and loses the fix for a hundred seconds in between. The
+        // stall detector walks positioned records only, so reading the cleaned series would see
+        // one place a hundred seconds apart and report a stall that never happened — after which
+        // every later anchor is skipped and the rest of the activity falls into the estimated zone.
+        var run = SyntheticRun.Create();
+        var activity = OutAndBackThroughGarbage();
+
+        var result = RepairService.Repair(activity, run.ReferenceTrack);
+
+        Assert.Equal(100, result.Report.DiscardedPositionCount);
+        Assert.Null(result.Report.GpsStallAtSeconds);
+        Assert.DoesNotContain(DiagnosticCodes.GpsStallDetected, result.Report.Warnings);
+        // The detector finds nothing in the series as it arrived, and the repair must agree.
+        Assert.Null(GpsStallDetector.Detect(activity, SyntheticRun.Options));
+    }
+
+    [Fact]
+    public void Repair_of_a_two_hour_activity_of_leading_garbage_takes_less_than_three_seconds()
+    {
+        // SM-3 against the cleaner's worst input: every position of a two-hour activity a
+        // teleport until the last five minutes, so the vote re-runs for each of them.
+        var run = SyntheticRun.Create();
+        var activity = LeadingGarbage(garbageRecords: 7_200, thenRunningSeconds: 300);
+
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        var result = RepairService.Repair(activity, run.ReferenceTrack);
+        stopwatch.Stop();
+
+        Assert.Equal(7_200, result.Report.DiscardedPositionCount);
+        Assert.True(stopwatch.Elapsed.TotalSeconds < 3, $"Обробка зайняла {stopwatch.Elapsed.TotalSeconds:F2} с");
+    }
+
+    [Fact]
     public void Measured_zone_pace_matches_the_athlete_within_five_percent()
     {
         var result = RepairSyntheticRun();
@@ -158,4 +193,53 @@ public class RepairServiceTests
         // SM-3: обробка активності на 2 години — менше 3 с.
         Assert.True(stopwatch.Elapsed.TotalSeconds < 3, $"Обробка зайняла {stopwatch.Elapsed.TotalSeconds:F2} с");
     }
+
+    /// <summary>
+    /// Out 600 m, a hundred seconds of garbage that is somewhere different every second, then
+    /// back to where the garbage began — so the cleaned series looks frozen and the recorded one
+    /// plainly is not.
+    /// </summary>
+    private static OriginalActivity OutAndBackThroughGarbage()
+    {
+        var start = new DateTime(2026, 11, 19, 15, 30, 0, DateTimeKind.Utc);
+        var records = new List<ActivityRecord>();
+
+        for (var second = 0; second <= 200; second++)
+            records.Add(At(start.AddSeconds(second), SyntheticRun.Offset(second * 3.0, 0)));
+
+        for (var second = 0; second < 100; second++)
+            records.Add(At(
+                start.AddSeconds(201 + second),
+                SyntheticRun.FarAway(500 + second * 7, bearingDegrees: 45)));
+
+        for (var second = 0; second <= 200; second++)
+            records.Add(At(start.AddSeconds(301 + second), SyntheticRun.Offset(600 - second * 3.0, 0)));
+
+        return new OriginalActivity { Records = records, Sport = SportKind.Running };
+    }
+
+    /// <summary>Nothing but teleports, then a short genuine run.</summary>
+    private static OriginalActivity LeadingGarbage(int garbageRecords, int thenRunningSeconds)
+    {
+        var start = new DateTime(2026, 11, 19, 15, 30, 0, DateTimeKind.Utc);
+        var teleport = SyntheticRun.FarAway(kilometres: 2_000, bearingDegrees: 90);
+        var records = new List<ActivityRecord>(garbageRecords + thenRunningSeconds + 1);
+
+        for (var second = 0; second < garbageRecords; second++)
+            records.Add(At(start.AddSeconds(second), teleport));
+
+        for (var second = 0; second <= thenRunningSeconds; second++)
+            records.Add(At(start.AddSeconds(garbageRecords + second), SyntheticRun.Offset(second * 3.0, 0)));
+
+        return new OriginalActivity { Records = records, Sport = SportKind.Running };
+    }
+
+    private static ActivityRecord At(DateTime timestamp, GeoPoint position) => new()
+    {
+        Timestamp = timestamp,
+        Latitude = position.Latitude,
+        Longitude = position.Longitude,
+        HeartRate = 150,
+        Cadence = 85
+    };
 }

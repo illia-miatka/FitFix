@@ -15,6 +15,33 @@ public sealed record AlignmentOptions
     /// <summary>Допуск до оцінки швидкості, щоб не відкидати Якорі через шум GPS, м.</summary>
     public double SpeedToleranceMeters { get; init; } = 3;
 
+    /// <summary>
+    /// The shortest time base a position may be judged impossible over, s. Cleaning asks whether
+    /// <see cref="MaxSpeedMetersPerSecond"/> could cover the step in <c>max(dt, this)</c>, so a
+    /// single second of GPS jitter — 15 m between two 1 Hz records of a 5 m/s runner — is never
+    /// called impossible, while a sustained impossible speed still is (AD-25).
+    /// </summary>
+    public double ImpossibleSpeedJudgedOverSeconds { get; init; } = 5;
+
+    /// <summary>
+    /// How long a reference with unresolved garbage behind it may vouch for, s. While cleaning is
+    /// still throwing positions away, the allowance stops growing with the elapsed time at this
+    /// bound, so a run of garbage cannot widen it until the next teleport fits inside (AD-25).
+    /// Its own threshold on purpose: <see cref="LongGapSeconds"/> governs the anchor stage's
+    /// minimum-speed gate, and retuning that gate must not retune cleaning.
+    /// </summary>
+    public double StaleReferenceVouchesForSeconds { get; init; } = 30;
+
+    /// <summary>
+    /// How many of the following positions vote on whether a position can be trusted as the
+    /// reference everything else is judged against (AD-25). A leading position has nothing behind
+    /// it, so this many positions that are somewhere else are asked whether it can be reached from
+    /// them; otherwise a cold-start fix would be confirmed by its own repetitions and condemn the
+    /// real route. It also bounds how long a run of discards may go on before the reference counts
+    /// as left behind and a new one is seated by the same vote.
+    /// </summary>
+    public int LeadingAgreementPositions { get; init; } = 3;
+
     /// <summary>Якщо між Якорями пройшло стільки часу, вимагаємо мінімальну швидкість (відсікає завислий GPS).</summary>
     public double LongGapSeconds { get; init; } = 30;
 
