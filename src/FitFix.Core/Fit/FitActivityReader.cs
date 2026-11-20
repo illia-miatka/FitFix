@@ -5,7 +5,8 @@ namespace FitFix.Core.Fit;
 
 /// <summary>
 /// Читає Оригінал: record-записи (час + сенсори) і вид спорту з session (PRD FR-1), plus the
-/// <c>timer</c> events that say where the activity was paused (AD-7).
+/// <c>timer</c> events that say where the activity was paused (AD-7) and the <c>lap</c> messages
+/// that say how the athlete split it (AD-24).
 /// </summary>
 public static class FitActivityReader
 {
@@ -15,6 +16,7 @@ public static class FitActivityReader
 
         var records = new List<ActivityRecord>();
         var timerEvents = new List<(System.DateTime Timestamp, EventType Type)>();
+        var laps = new List<LapInterval>();
         var sport = SportKind.Other;
 
         FitDecoder.Decode(stream, broadcaster =>
@@ -63,6 +65,21 @@ public static class FitActivityReader
                     timerEvents.Add((
                         System.DateTime.SpecifyKind(timestamp.GetDateTime(), DateTimeKind.Utc), type));
             };
+
+            // The file is the only thing that says where the laps were (AD-24). A lap message
+            // states its span as start_time and timestamp, the latter being its end. A lap with
+            // no end is skipped rather than guessed at — a boundary invented from an elapsed time
+            // would move a press the athlete made — but one that has an end and no start keeps
+            // the end, which is a cut point in its own right.
+            broadcaster.LapMesgEvent += (_, e) =>
+            {
+                var mesg = (LapMesg)e.mesg;
+                if (mesg.GetTimestamp() is not { } to)
+                    return;
+
+                var end = Utc(to);
+                laps.Add(new LapInterval(mesg.GetStartTime() is { } from ? Utc(from) : end, end));
+            };
         });
 
         if (records.Count == 0)
@@ -75,9 +92,17 @@ public static class FitActivityReader
         {
             Records = records,
             Sport = sport,
-            Pauses = PausesOf(timerEvents, records[^1].Timestamp)
+            Pauses = PausesOf(timerEvents, records[^1].Timestamp),
+            // A FIT file may hold more than one session, and a course or a previous workout
+            // leaves lap messages of its own. A lap whose end lies outside this activity's
+            // records belongs to something else and must not cut this activity's laps.
+            Laps = [.. laps.Where(lap =>
+                lap.End >= records[0].Timestamp && lap.End <= records[^1].Timestamp)]
         };
     }
+
+    private static System.DateTime Utc(Dynastream.Fit.DateTime timestamp) =>
+        System.DateTime.SpecifyKind(timestamp.GetDateTime(), DateTimeKind.Utc);
 
     /// <summary>
     /// Every event type that stops the timer. A watch writes <c>stop_disable</c> or

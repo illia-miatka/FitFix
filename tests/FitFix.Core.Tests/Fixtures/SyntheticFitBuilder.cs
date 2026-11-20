@@ -18,16 +18,49 @@ public static class SyntheticFitBuilder
     public readonly record struct TimerEvent(System.DateTime Timestamp, EventType Type);
 
     /// <summary>
+    /// The lap distance every written <c>lap</c> message claims: the device's own measurement,
+    /// which the broken GPS made nonsense of. Deliberately absurd — no lap of the synthetic run
+    /// is anywhere near it — so a repaired file that quoted it would fail outright.
+    /// </summary>
+    public const float DeviceLapDistanceMeters = 42_195;
+
+    /// <summary>
     /// The activity with the timer events its own pauses imply: a <c>start</c> at the first
     /// record, a <c>stop</c>/<c>start</c> pair around every pause, and a <c>stop_all</c> at the
-    /// last record. An activity nobody paused is written exactly as it was before pauses existed —
-    /// no event messages at all — so no number pinned on the pause-free fixture can move.
+    /// last record. Its <see cref="OriginalActivity.Laps"/> are written as <c>lap</c> messages,
+    /// exactly as stated — overlaps and all, since a device can write those too. An activity
+    /// nobody paused and nobody lapped is written exactly as it was before pauses and laps
+    /// existed — no event and no lap messages at all — so no number pinned on that fixture can
+    /// move.
     /// </summary>
     public static byte[] WriteActivity(OriginalActivity activity) =>
         WriteActivity(activity, TimerEventsFor(activity));
 
+    /// <summary>
+    /// One <c>lap</c> message exactly as stated, so a fixture can express a lap
+    /// <see cref="LapInterval"/> cannot — a lap the file gave no <c>start_time</c>, or none at
+    /// all, which is the only way to reach the reader's "a lap with no end" branch.
+    /// </summary>
+    public readonly record struct RawLap(System.DateTime? Start, System.DateTime? End);
+
+    /// <summary>
+    /// The activity with exactly the <c>lap</c> messages stated, whatever boundaries they are
+    /// missing, instead of the ones its <see cref="OriginalActivity.Laps"/> imply.
+    /// </summary>
+    public static byte[] WriteActivityWithRawLaps(OriginalActivity activity, IReadOnlyList<RawLap> laps) =>
+        WriteActivity(activity, TimerEventsFor(activity), laps);
+
     /// <summary>The activity with exactly the timer events stated, in the order given.</summary>
-    public static byte[] WriteActivity(OriginalActivity activity, IReadOnlyList<TimerEvent> timerEvents)
+    public static byte[] WriteActivity(OriginalActivity activity, IReadOnlyList<TimerEvent> timerEvents) =>
+        WriteActivity(activity, timerEvents, LapsOf(activity));
+
+    private static IReadOnlyList<RawLap> LapsOf(OriginalActivity activity) =>
+        [.. activity.Laps.Select(lap => new RawLap(lap.Start, lap.End))];
+
+    private static byte[] WriteActivity(
+        OriginalActivity activity,
+        IReadOnlyList<TimerEvent> timerEvents,
+        IReadOnlyList<RawLap> laps)
     {
         using var buffer = new MemoryStream();
         var encoder = new Encode(ProtocolVersion.V20);
@@ -51,6 +84,32 @@ public static class SyntheticFitBuilder
 
         foreach (var entry in stream)
             encoder.Write(entry.Mesg);
+
+        // The laps the athlete marked, as a watch writes them: start_time and timestamp are the
+        // span, and total_distance is the one the device measured with the GPS that failed —
+        // exactly the number the repair must not believe (AD-24). It is written as a value no
+        // repaired lap could hold, so a writer that copied it across would be caught rather than
+        // flattered by a plausible-looking figure.
+        var lapIndex = 0;
+        foreach (var lap in laps)
+        {
+            var mesg = new LapMesg();
+            mesg.SetMessageIndex((ushort)lapIndex++);
+            if (lap.Start is { } from)
+                mesg.SetStartTime(new FitDateTime(from));
+            if (lap.End is { } to)
+                mesg.SetTimestamp(new FitDateTime(to));
+            if (lap.Start is { } spanFrom && lap.End is { } spanTo)
+            {
+                mesg.SetTotalElapsedTime((float)(spanTo - spanFrom).TotalSeconds);
+                mesg.SetTotalTimerTime((float)(spanTo - spanFrom).TotalSeconds);
+            }
+
+            mesg.SetTotalDistance(DeviceLapDistanceMeters);
+            mesg.SetEvent(Event.Lap);
+            mesg.SetEventType(EventType.Stop);
+            encoder.Write(mesg);
+        }
 
         var session = new SessionMesg();
         session.SetTimestamp(new FitDateTime(activity.EndTime));

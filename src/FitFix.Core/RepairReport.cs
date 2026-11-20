@@ -31,6 +31,13 @@ public sealed record RepairReport
     /// </summary>
     public required int DiscardedPositionCount { get; init; }
 
+    /// <summary>
+    /// How many laps the repaired activity carries (AD-24) — the Original's own, or one when it
+    /// had none. Without it a shell cannot tell the athlete that their eight by four hundred came
+    /// through, which is the whole point of reading the laps at all (FR-6).
+    /// </summary>
+    public required int LapCount { get; init; }
+
     public required IReadOnlyList<string> Warnings { get; init; }
 
     public double MeasuredFraction => ElapsedSeconds > 0 ? MeasuredUntilSeconds / ElapsedSeconds : 0;

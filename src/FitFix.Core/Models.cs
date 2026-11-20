@@ -34,8 +34,20 @@ public sealed record ActivityRecord
 public readonly record struct PauseInterval(DateTime Start, DateTime End);
 
 /// <summary>
+/// One lap of the activity, read from the Original's own <c>lap</c> messages (AD-24): the span
+/// between two presses of the lap button, or between two automatic splits. The interval says
+/// where the lap was in time and nothing else — its distance is recomputed from the repaired
+/// series, because the Original's own lap distance was measured by the GPS that failed (FR-6).
+/// A lap whose <c>start_time</c> the file never stated is carried as a point, with
+/// <see cref="Start"/> equal to <see cref="End"/>: its end is a boundary the athlete made, and
+/// dropping the whole lap would throw that boundary away to avoid inventing a beginning.
+/// </summary>
+public readonly record struct LapInterval(DateTime Start, DateTime End);
+
+/// <summary>
 /// Оригінал — джерело часу й сенсорів. A record, so cleaning copies it with <c>with</c> and
-/// every member a later story adds — the laps of Story 1.6 — comes along by itself.
+/// every member comes along by itself — the pauses of Story 1.5 and the laps of Story 1.6
+/// included.
 /// </summary>
 public sealed record OriginalActivity
 {
@@ -43,6 +55,7 @@ public sealed record OriginalActivity
     public SportKind Sport { get; init; } = SportKind.Other;
 
     private readonly IReadOnlyList<PauseInterval> pauses = [];
+    private readonly IReadOnlyList<LapInterval> laps = [];
 
     /// <summary>
     /// The stretches the timer was stopped for (AD-7) — always ordered by time, never
@@ -55,6 +68,118 @@ public sealed record OriginalActivity
     {
         get => pauses;
         init => pauses = Normalise(value);
+    }
+
+    /// <summary>
+    /// The laps the Original recorded (AD-24), with the file's own boundaries: a lap is where the
+    /// athlete pressed the button, and nothing else in the model may move it. Ordered by start
+    /// and then by end in the init accessor, exactly as <see cref="Pauses"/> is normalised there,
+    /// so every reader sees one order; a backwards interval is dropped, because it describes no
+    /// stretch of the activity. Overlapping, repeated and zero-length laps are <em>kept</em> as
+    /// they were read, unlike pauses: a device that writes them is describing presses that really
+    /// happened, and reconciling them is the job of <see cref="LapPartition"/>, the one place that
+    /// has to produce a tiling. Clipping to the activity's span happens there too, for the same
+    /// reason it does for pauses: the span is a property of <see cref="Records"/>, which an init
+    /// accessor cannot depend on having seen.
+    /// Empty is the honest default — a file with no <c>lap</c> message had no laps.
+    /// </summary>
+    public IReadOnlyList<LapInterval> Laps
+    {
+        get => laps;
+        init => laps = Normalise(value);
+    }
+
+    /// <summary>
+    /// The laps as a partition of the activity: every interval the written file will carry, in
+    /// time order, tiling the span from the first record to the last exactly once — no gap, no
+    /// overlap (FR-6). Both the <em>starts</em> and the <em>ends</em> of the Original's laps are
+    /// cut points, so a lap that does not begin where the activity did keeps its own beginning and
+    /// the unlapped stretch before it becomes an interval of its own; cutting at ends alone would
+    /// hand back boundaries the athlete never pressed while the arithmetic still added up. The
+    /// first interval starts at the activity's start and the last runs to its end, which is what
+    /// makes the lap distances sum to the total whatever the device wrote: cuts outside the span
+    /// are dropped rather than trusted, repeated cuts cut once, and a lap reaching past the last
+    /// record contributes no cut at all.
+    /// <para>
+    /// A cut is also dropped when no record separates it from the previous boundary — two lap
+    /// messages a fraction of a second apart, a manual press beside an auto-lap — because the
+    /// interval between them would hold a single record and be written as a lap of no distance
+    /// and no pace. Resolving the cuts against the records rather than against an assumed
+    /// recording rate is what makes that true for smart recording as well as for 1 Hz.
+    /// </para>
+    /// An activity with no laps is one lap covering everything; an activity with no records, or
+    /// with one, has no laps at all — there is no span to partition, and the alternative is an
+    /// index out of range where this project's rule is a declared code or nothing (AD-18).
+    /// <para>
+    /// A method rather than a property: it sorts and allocates on every call, so a caller that
+    /// needs it twice should hold the result.
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<LapInterval> LapPartition()
+    {
+        if (Records.Count < 2)
+            return [];
+
+        var start = StartTime;
+        var end = EndTime;
+
+        // Both boundaries of every lap, in order. Laps are ordered by start, so the ends of laps
+        // nested inside others are not in order and the whole set has to be sorted.
+        var cuts = Laps
+            .SelectMany(lap => (DateTime[])[lap.Start, lap.End])
+            .Where(cut => cut > start && cut < end)
+            .Distinct()
+            .Order();
+
+        var partition = new List<LapInterval>();
+        var from = start;
+        var fromRecord = 0;
+
+        foreach (var cut in cuts)
+        {
+            var record = NearestRecordIndex(cut);
+
+            // The cut has to leave a record on each side of it: one that is the previous
+            // boundary's own record closes an interval of no distance, and one that is the last
+            // record leaves the final interval with nothing of its own.
+            if (record <= fromRecord || record >= Records.Count - 1)
+                continue;
+
+            partition.Add(new LapInterval(from, cut));
+            from = cut;
+            fromRecord = record;
+        }
+
+        partition.Add(new LapInterval(from, end));
+        return partition;
+    }
+
+    /// <summary>
+    /// The index of the record nearest an instant in time, with a tie going to the earlier
+    /// record. A lap boundary need not fall on a record — under smart recording most of them fall
+    /// between two — so this is where a boundary is resolved to a record, once: the partition
+    /// drops cuts that resolve onto a boundary already taken, and the FIT writer reads each lap's
+    /// distance at the very same index, so two adjacent laps share one record and the distances
+    /// telescope to the activity's total instead of counting a metre twice or losing it.
+    /// </summary>
+    public int NearestRecordIndex(DateTime instant)
+    {
+        var low = 0;
+        var high = Records.Count - 1;
+        while (low < high)
+        {
+            var mid = low + (high - low) / 2;
+            if (Records[mid].Timestamp < instant)
+                low = mid + 1;
+            else
+                high = mid;
+        }
+
+        // `low` is the first record at or after the instant; the one before it may be closer.
+        if (low > 0 && instant - Records[low - 1].Timestamp <= Records[low].Timestamp - instant)
+            return low - 1;
+
+        return low;
     }
 
     public DateTime StartTime => Records[0].Timestamp;
@@ -151,6 +276,20 @@ public sealed record OriginalActivity
         }
 
         return merged;
+    }
+
+    /// <summary>
+    /// The laps ordered by start and then by end, with the backwards ones dropped: an interval
+    /// that ends before it began describes no stretch of the activity. A lap that ends where it
+    /// began is kept — it is how a lap the file gave no start is carried, and its end is still a
+    /// boundary. Nothing is merged — see <see cref="Laps"/>.
+    /// </summary>
+    private static IReadOnlyList<LapInterval> Normalise(IReadOnlyList<LapInterval>? intervals)
+    {
+        if (intervals is null || intervals.Count == 0)
+            return [];
+
+        return [.. intervals.Where(lap => lap.End >= lap.Start).OrderBy(lap => lap.Start).ThenBy(lap => lap.End)];
     }
 
     /// <summary>The activity's total paused seconds, clipped to its own span (FR-6).</summary>

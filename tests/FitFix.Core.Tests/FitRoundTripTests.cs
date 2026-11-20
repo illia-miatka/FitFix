@@ -43,10 +43,17 @@ public class FitRoundTripTests
         Assert.Equal(track.Length, reread.Records[^1].Distance!.Value, track.Length * 0.005);
     }
 
-    [Fact]
-    public void Repaired_file_contains_the_messages_strava_needs()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Repaired_file_contains_the_messages_strava_needs(bool lapped)
     {
-        var run = SyntheticRun.Create();
+        // AD-19: file_id → timer start → records → timer stop_all → lap × M → session → activity.
+        // M is the number of laps the Original had, and one when it had none (AD-24), so the
+        // structure is pinned for both shapes rather than only for the unlapped one.
+        var run = lapped
+            ? SyntheticRun.Create().WithLapsEndingAt(300, 1500)
+            : SyntheticRun.Create();
         var result = RepairService.Repair(run.Original, run.ReferenceTrack);
         var bytes = FitActivityWriter.WriteToArray(result, utcOffsetSeconds: 0);
 
@@ -55,9 +62,17 @@ public class FitRoundTripTests
         Assert.Equal(1, inspection.FileIdCount);
         Assert.Equal(2, inspection.TimerEventCount);
         Assert.Equal(result.Records.Count, inspection.RecordCount);
-        Assert.Equal(1, inspection.LapCount);
+        // Derived from the partition the model produced, not restated by hand beside the
+        // boundaries above, so the two cannot drift apart.
+        Assert.Equal(run.Original.LapPartition().Count, inspection.LapCount);
         Assert.Equal(1, inspection.SessionCount);
         Assert.Equal(1, inspection.ActivityCount);
+
+        // The order, not only the counts: a file writing its session before its laps carries the
+        // very same six numbers and does not import.
+        Assert.Equal(
+            ["file_id", "event", "record", "event", "lap", "session", "activity"],
+            inspection.MessageOrder);
     }
 
     [Fact]

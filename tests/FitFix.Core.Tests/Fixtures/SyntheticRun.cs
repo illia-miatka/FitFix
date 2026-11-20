@@ -126,6 +126,123 @@ public sealed class SyntheticRun
     }
 
     /// <summary>
+    /// The same run with the athlete's own laps marked: one lap ending at each of
+    /// <paramref name="secondsFromStart"/>, and a last lap running to the end of the activity —
+    /// so three unequal laps are <c>WithLapsEndingAt(300, 1500)</c>. Only the lap intervals are
+    /// added, so every number the suite pins on the unlapped run stays comparable.
+    /// </summary>
+    public SyntheticRun WithLapsEndingAt(params int[] secondsFromStart)
+    {
+        ArgumentNullException.ThrowIfNull(secondsFromStart);
+        if (secondsFromStart.Length == 0)
+            throw new ArgumentException("A lapped run needs at least one lap boundary.", nameof(secondsFromStart));
+
+        var elapsed = Original.ElapsedSeconds;
+        var previous = 0;
+        foreach (var second in secondsFromStart)
+        {
+            // Boundaries out of order, or outside the activity, would be testing the partition's
+            // repair of a malformed file while claiming to test an ordinary lapped run.
+            if (second <= previous || second >= elapsed)
+                throw new ArgumentOutOfRangeException(
+                    nameof(secondsFromStart),
+                    second,
+                    $"Lap boundaries must rise through the activity's {elapsed:F0} s.");
+
+            previous = second;
+        }
+
+        var start = Original.StartTime;
+        var laps = new List<LapInterval>(secondsFromStart.Length + 1);
+        var from = start;
+        foreach (var second in secondsFromStart)
+        {
+            laps.Add(new LapInterval(from, start.AddSeconds(second)));
+            from = start.AddSeconds(second);
+        }
+
+        laps.Add(new LapInterval(from, Original.EndTime));
+
+        return new SyntheticRun
+        {
+            TrackPoints = TrackPoints,
+            TrueRouteLength = TrueRouteLength,
+            Original = Original with { Laps = laps }
+        };
+    }
+
+    /// <summary>
+    /// The same run with a heart rate and a cadence of its own in every lap — the athlete working
+    /// harder in each one. Without it the fixture cannot tell a per-lap average from the whole
+    /// activity's: the unmodified run's heart rate cycles through ten values and its cadence never
+    /// changes, so every window averages to the same number. A record on a boundary belongs to the
+    /// earlier lap, which is the lap whose sensor window the writer puts it in.
+    /// </summary>
+    public SyntheticRun WithSensorsPerLap()
+    {
+        var partition = Original.LapPartition();
+
+        var records = Original.Records.Select(record =>
+        {
+            var lap = 0;
+            while (lap < partition.Count - 1 && record.Timestamp > partition[lap].End)
+                lap++;
+
+            return record with
+            {
+                HeartRate = (byte)(HeartRatePerLap + LapHeartRateStep * lap),
+                Cadence = (byte)(CadencePerLap + LapCadenceStep * lap)
+            };
+        });
+
+        return new SyntheticRun
+        {
+            TrackPoints = TrackPoints,
+            TrueRouteLength = TrueRouteLength,
+            Original = Original with { Records = [.. records] }
+        };
+    }
+
+    /// <summary>Heart rate in the first lap of <see cref="WithSensorsPerLap"/>, and the step per lap.</summary>
+    public const int HeartRatePerLap = 140;
+
+    /// <inheritdoc cref="HeartRatePerLap"/>
+    public const int LapHeartRateStep = 10;
+
+    /// <summary>Cadence in the first lap of <see cref="WithSensorsPerLap"/>, and the step per lap.</summary>
+    public const int CadencePerLap = 80;
+
+    /// <inheritdoc cref="CadencePerLap"/>
+    public const int LapCadenceStep = 5;
+
+    /// <summary>
+    /// The same run under smart recording: one record every <paramref name="everySeconds"/>
+    /// instead of one a second, which is how a watch that writes a point when something changes
+    /// records a steady run. The first and last records are always kept, so the span is the dense
+    /// run's and a lap boundary between two records is the real thing rather than a fraction of a
+    /// second on a 1 Hz series.
+    /// </summary>
+    public SyntheticRun WithRecordsEvery(int everySeconds)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(everySeconds, 2);
+
+        var all = Original.Records;
+        var sparse = new List<ActivityRecord>((all.Count / everySeconds) + 2);
+        for (var index = 0; index < all.Count; index += everySeconds)
+            sparse.Add(all[index]);
+
+        if (sparse[^1].Timestamp != all[^1].Timestamp)
+            sparse.Add(all[^1]);
+
+        return new SyntheticRun
+        {
+            TrackPoints = TrackPoints,
+            TrueRouteLength = TrueRouteLength,
+            Original = Original with { Records = sparse }
+        };
+    }
+
+    /// <summary>
     /// The clock every fixture starts at. One value, so a second means the same thing in all of
     /// them and the two runs below can be compared second by second.
     /// </summary>

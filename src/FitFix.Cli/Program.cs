@@ -134,6 +134,12 @@ static void PrintReport(RepairResult result, string output)
     if (report.DiscardedPositionCount > 0)
         Console.WriteLine($"Відкинуто точок:   {report.DiscardedPositionCount}");
 
+    // The laps the Original marked, carried through the repair (AD-24). Said only when there is
+    // more than one: a single lap is what an unlapped activity gets, and announcing it would read
+    // as news.
+    if (report.LapCount > 1)
+        Console.WriteLine($"Кіл:               {report.LapCount}");
+
     if (report.Warnings.Count > 0)
         Console.WriteLine($"Попередження:      {string.Join(", ", report.Warnings)}");
 
