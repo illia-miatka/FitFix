@@ -31,6 +31,14 @@ public static class FitActivityWriter
         var start = new FitDateTime(records[0].Timestamp);
         var end = new FitDateTime(records[^1].Timestamp);
         var elapsed = (float)(records[^1].Timestamp - records[0].Timestamp).TotalSeconds;
+
+        // Timer time is elapsed time minus what the athlete stood still for (FR-6, AD-7). The
+        // pauses come from the Original the repair worked from, the one model of a pause there is;
+        // elapsed time stays the Original's own span (±1 s). Pauses that swallow the whole
+        // activity are an event stream that cannot be true — a timer time of zero beside a full
+        // distance reads as an infinite pace — so they are ignored rather than written.
+        var paused = result.CleanedOriginal.PausedSeconds;
+        var timer = paused < elapsed ? (float)(elapsed - paused) : elapsed;
         var totalDistance = (float)records[^1].Distance;
 
         var encoder = new Encode(ProtocolVersion.V20);
@@ -43,9 +51,9 @@ public static class FitActivityWriter
             encoder.Write(BuildRecord(record));
 
         encoder.Write(BuildTimerEvent(end, EventType.StopAll));
-        encoder.Write(BuildLap(result, start, end, elapsed, totalDistance));
-        encoder.Write(BuildSession(result, start, end, elapsed, totalDistance));
-        encoder.Write(BuildActivity(end, elapsed, utcOffsetSeconds));
+        encoder.Write(BuildLap(result, start, end, elapsed, timer, totalDistance));
+        encoder.Write(BuildSession(result, start, end, elapsed, timer, totalDistance));
+        encoder.Write(BuildActivity(end, timer, utcOffsetSeconds));
 
         encoder.Close();
     }
@@ -113,13 +121,19 @@ public static class FitActivityWriter
         return mesg;
     }
 
-    private static LapMesg BuildLap(RepairResult result, FitDateTime start, FitDateTime end, float elapsed, float distance)
+    private static LapMesg BuildLap(
+        RepairResult result,
+        FitDateTime start,
+        FitDateTime end,
+        float elapsed,
+        float timer,
+        float distance)
     {
         var mesg = new LapMesg();
         mesg.SetTimestamp(end);
         mesg.SetStartTime(start);
         mesg.SetTotalElapsedTime(elapsed);
-        mesg.SetTotalTimerTime(elapsed);
+        mesg.SetTotalTimerTime(timer);
         mesg.SetTotalDistance(distance);
         mesg.SetSport(MapSport(result.Sport));
         mesg.SetEvent(Event.Lap);
@@ -132,7 +146,7 @@ public static class FitActivityWriter
         mesg.SetEndPositionLat(FitDecoder.ToSemicircles(records[^1].Latitude));
         mesg.SetEndPositionLong(FitDecoder.ToSemicircles(records[^1].Longitude));
 
-        ApplyAverages(result, elapsed, distance,
+        ApplyAverages(result, timer, distance,
             (speed, avgHr, maxHr, avgPower, maxPower, avgCadence) =>
             {
                 mesg.SetAvgSpeed(speed);
@@ -147,13 +161,19 @@ public static class FitActivityWriter
         return mesg;
     }
 
-    private static SessionMesg BuildSession(RepairResult result, FitDateTime start, FitDateTime end, float elapsed, float distance)
+    private static SessionMesg BuildSession(
+        RepairResult result,
+        FitDateTime start,
+        FitDateTime end,
+        float elapsed,
+        float timer,
+        float distance)
     {
         var mesg = new SessionMesg();
         mesg.SetTimestamp(end);
         mesg.SetStartTime(start);
         mesg.SetTotalElapsedTime(elapsed);
-        mesg.SetTotalTimerTime(elapsed);
+        mesg.SetTotalTimerTime(timer);
         mesg.SetTotalDistance(distance);
         mesg.SetSport(MapSport(result.Sport));
         mesg.SetSubSport(SubSport.Generic);
@@ -168,7 +188,7 @@ public static class FitActivityWriter
         mesg.SetStartPositionLat(FitDecoder.ToSemicircles(records[0].Latitude));
         mesg.SetStartPositionLong(FitDecoder.ToSemicircles(records[0].Longitude));
 
-        ApplyAverages(result, elapsed, distance,
+        ApplyAverages(result, timer, distance,
             (speed, avgHr, maxHr, avgPower, maxPower, avgCadence) =>
             {
                 mesg.SetAvgSpeed(speed);
@@ -183,11 +203,11 @@ public static class FitActivityWriter
         return mesg;
     }
 
-    private static ActivityMesg BuildActivity(FitDateTime end, float elapsed, int utcOffsetSeconds)
+    private static ActivityMesg BuildActivity(FitDateTime end, float timer, int utcOffsetSeconds)
     {
         var mesg = new ActivityMesg();
         mesg.SetTimestamp(end);
-        mesg.SetTotalTimerTime(elapsed);
+        mesg.SetTotalTimerTime(timer);
         mesg.SetNumSessions(1);
         mesg.SetType(Activity.Manual);
         mesg.SetEvent(Event.Activity);
@@ -196,9 +216,15 @@ public static class FitActivityWriter
         return mesg;
     }
 
+    /// <summary>
+    /// The averages a summary message carries. Speed is distance over
+    /// <paramref name="timer"/> — moving time, the same number the message states as its
+    /// <c>total_timer_time</c>, so the file cannot claim one duration and an average derived from
+    /// another. The sensor averages are Story 1.7's to revisit.
+    /// </summary>
     private static void ApplyAverages(
         RepairResult result,
-        float elapsed,
+        float timer,
         float distance,
         Action<float, byte?, byte?, ushort?, ushort?, byte?> apply)
     {
@@ -208,7 +234,7 @@ public static class FitActivityWriter
         var cadences = records.Where(r => r.Cadence is > 0).Select(r => (int)r.Cadence!.Value).ToArray();
 
         apply(
-            elapsed > 0 ? distance / elapsed : 0,
+            timer > 0 ? distance / timer : 0,
             heartRates.Length > 0 ? (byte)Math.Round(heartRates.Average()) : null,
             heartRates.Length > 0 ? (byte)heartRates.Max() : null,
             powers.Length > 0 ? (ushort)Math.Round(powers.Average()) : null,

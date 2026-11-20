@@ -8,6 +8,16 @@ public sealed record RepairReport
     public required double TrackLengthMeters { get; init; }
     public required double ElapsedSeconds { get; init; }
 
+    /// <summary>
+    /// How much of the elapsed time the athlete stood still, from the Original's own pause
+    /// intervals (AD-7). Without it a shell shows a pace over the whole clock beside a file that
+    /// states a shorter timer time, and the two contradict each other in front of the user.
+    /// </summary>
+    public required double PausedSeconds { get; init; }
+
+    /// <summary>Elapsed time minus the pauses — the time the written file claims (FR-6).</summary>
+    public double MovingSeconds => ElapsedSeconds - PausedSeconds;
+
     /// <summary>До цього часу позиція виміряна Якорями, далі — розрахована.</summary>
     public required double MeasuredUntilSeconds { get; init; }
 

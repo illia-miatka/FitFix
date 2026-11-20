@@ -116,6 +116,13 @@ static void PrintReport(RepairResult result, string output)
     Console.WriteLine($"Вид спорту:        {result.Sport}");
     Console.WriteLine($"Дистанція:         {report.OriginalDistanceMeters / 1000:F2} км → {report.RepairedDistanceMeters / 1000:F2} км");
     Console.WriteLine($"Загальний час:     {FormatDuration(report.ElapsedSeconds)}");
+
+    // The written file states moving time, not elapsed time (FR-6), so the report says both —
+    // otherwise the pace on screen silently contradicts the file. The pace formula itself is
+    // Story 1.7's.
+    if (report.PausedSeconds > 0)
+        Console.WriteLine($"Час у руху:        {FormatDuration(report.MovingSeconds)} (пауз: {FormatDuration(report.PausedSeconds)})");
+
     Console.WriteLine($"Темп:              {FormatPace(report.OriginalPaceSecondsPerKm)} → {FormatPace(report.RepairedPaceSecondsPerKm)}");
     Console.WriteLine($"Надійна зона:      до {FormatDuration(report.MeasuredUntilSeconds)} ({report.MeasuredFraction.ToString("P0", culture)} активності), якорів: {report.AnchorCount}");
 

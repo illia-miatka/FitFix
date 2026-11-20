@@ -3,7 +3,10 @@ using FitFix.Core.Diagnostics;
 
 namespace FitFix.Core.Fit;
 
-/// <summary>Читає Оригінал: record-записи (час + сенсори) і вид спорту з session (PRD FR-1).</summary>
+/// <summary>
+/// Читає Оригінал: record-записи (час + сенсори) і вид спорту з session (PRD FR-1), plus the
+/// <c>timer</c> events that say where the activity was paused (AD-7).
+/// </summary>
 public static class FitActivityReader
 {
     public static OriginalActivity Read(Stream stream)
@@ -11,6 +14,7 @@ public static class FitActivityReader
         ArgumentNullException.ThrowIfNull(stream);
 
         var records = new List<ActivityRecord>();
+        var timerEvents = new List<(System.DateTime Timestamp, EventType Type)>();
         var sport = SportKind.Other;
 
         FitDecoder.Decode(stream, broadcaster =>
@@ -42,6 +46,23 @@ public static class FitActivityReader
                 var mesg = (SessionMesg)e.mesg;
                 sport = MapSport(mesg.GetSport());
             };
+
+            // The timer events are the only thing that says the activity was paused (AD-7).
+            // Everything else about a pause is derived from the intervals built out of them.
+            broadcaster.EventMesgEvent += (_, e) =>
+            {
+                var mesg = (EventMesg)e.mesg;
+                if (mesg.GetEvent() != Event.Timer)
+                    return;
+
+                var timestamp = mesg.GetTimestamp();
+                if (timestamp is null)
+                    return;
+
+                if (mesg.GetEventType() is { } type && (type == EventType.Start || IsStop(type)))
+                    timerEvents.Add((
+                        System.DateTime.SpecifyKind(timestamp.GetDateTime(), DateTimeKind.Utc), type));
+            };
         });
 
         if (records.Count == 0)
@@ -50,7 +71,63 @@ public static class FitActivityReader
 
         records.Sort((a, b) => a.Timestamp.CompareTo(b.Timestamp));
 
-        return new OriginalActivity { Records = records, Sport = sport };
+        return new OriginalActivity
+        {
+            Records = records,
+            Sport = sport,
+            Pauses = PausesOf(timerEvents, records[^1].Timestamp)
+        };
+    }
+
+    /// <summary>
+    /// Every event type that stops the timer. A watch writes <c>stop_disable</c> or
+    /// <c>stop_disable_all</c> when the athlete presses stop and <c>stop</c> or <c>stop_all</c>
+    /// when it pauses itself; a pause is a pause either way, so reading only two of the four
+    /// would leave genuinely paused files behaving as if nothing had been read at all.
+    /// </summary>
+    private static bool IsStop(EventType type) =>
+        type is EventType.Stop or EventType.StopAll or EventType.StopDisable or EventType.StopDisableAll;
+
+    /// <summary>
+    /// The pauses the timer events describe, ordered by time (AD-7). A stop opens a pause and the
+    /// next <c>start</c> closes it; a second stop before that start extends the one already open
+    /// rather than opening a nested second one, and a <c>start</c> with no stop before it closes
+    /// nothing. A stop nothing reopens is where the activity ended — unless records keep arriving
+    /// after it, which is a watch that was stopped and went on writing: then the pause runs to
+    /// the last record, because those seconds are standing still just the same.
+    /// </summary>
+    private static IReadOnlyList<PauseInterval> PausesOf(
+        List<(System.DateTime Timestamp, EventType Type)> timerEvents,
+        System.DateTime lastRecord)
+    {
+        if (timerEvents.Count == 0)
+            return [];
+
+        var pauses = new List<PauseInterval>();
+        System.DateTime? openedAt = null;
+
+        // OrderBy is stable, so a stop and a start sharing one timestamp keep the order the file
+        // put them in — the only thing that can tell them apart.
+        foreach (var (timestamp, type) in timerEvents.OrderBy(e => e.Timestamp))
+        {
+            if (IsStop(type))
+            {
+                openedAt ??= timestamp;
+                continue;
+            }
+
+            if (openedAt is { } from && timestamp > from)
+                pauses.Add(new PauseInterval(from, timestamp));
+
+            openedAt = null;
+        }
+
+        // A stop at the last record is the end of the activity and earns no interval; one the
+        // records outlive is a pause that lasts as long as they do.
+        if (openedAt is { } unclosed && lastRecord > unclosed)
+            pauses.Add(new PauseInterval(unclosed, lastRecord));
+
+        return pauses;
     }
 
     public static OriginalActivity ReadFile(string path)

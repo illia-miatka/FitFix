@@ -10,18 +10,20 @@ namespace FitFix.Core.Tests;
 /// <summary>
 /// AD-10: every tuning threshold lives in <see cref="AlignmentOptions"/> and no public core
 /// signature carries a default, so two entry points cannot silently disagree on the same files.
-/// The numbers pinned here are the ones the suite produced before the thresholds moved.
+/// The numbers pinned here are the ones the suite produced before the thresholds moved. They are
+/// internal rather than private because <see cref="PauseTests"/> asserts the very same three on
+/// the pause-free run: one number, one owner, so neither copy can be updated alone.
 /// </summary>
 public class AlignmentOptionsTests
 {
     /// <summary>Repaired distance of the synthetic run before the thresholds moved, m.</summary>
-    private const double ExpectedRepairedDistance = 6499.5036;
+    internal const double ExpectedRepairedDistance = 6499.5036;
 
     /// <summary>Anchor count of the synthetic run before the thresholds moved.</summary>
-    private const int ExpectedAnchorCount = 1129;
+    internal const int ExpectedAnchorCount = 1129;
 
     /// <summary>Boundary of the measured zone of the synthetic run before the move, s.</summary>
-    private const double ExpectedMeasuredUntil = 1295;
+    internal const double ExpectedMeasuredUntil = 1295;
 
     [Fact]
     public void The_defaults_reproduce_the_numbers_from_before_the_move()

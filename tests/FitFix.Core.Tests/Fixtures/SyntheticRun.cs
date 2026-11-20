@@ -21,6 +21,12 @@ public sealed class SyntheticRun
     /// <summary>Момент, коли GPS зависає, с.</summary>
     public const int GpsFailureSeconds = 1300;
 
+    /// <summary>When the athlete stops at the traffic light, s from the start — mid-route.</summary>
+    public const int PauseStartSeconds = 900;
+
+    /// <summary>How long the wait lasts, s: the five minutes of FR-5.</summary>
+    public const int PauseSeconds = 300;
+
     /// <summary>Висота Оригіналу на старті, м.</summary>
     public const double OriginalStartAltitude = 182.8;
 
@@ -119,19 +125,47 @@ public sealed class SyntheticRun
         };
     }
 
-    public static SyntheticRun Create(bool withGpsFailure = true, bool withAnyGps = true)
-    {
-        var route = BuildRectangleLoop(widthMeters: 1500, heightMeters: 1750, stepMeters: 5);
-        var cumulative = Cumulative(route);
-        var length = cumulative[^1];
+    /// <summary>
+    /// The clock every fixture starts at. One value, so a second means the same thing in all of
+    /// them and the two runs below can be compared second by second.
+    /// </summary>
+    public static DateTime StartTime => new(2026, 11, 19, 15, 30, 0, DateTimeKind.Utc);
 
-        var trackPoints = route
+    /// <summary>The route and the reference geometry both runs share.</summary>
+    private sealed record Course(GeoPoint[] Points, double[] Cumulative, double Length, TrackPoint[] TrackPoints);
+
+    /// <summary>
+    /// Builds that geometry: the rectangular loop, its cumulative distances and the track points
+    /// with the altitude offset of the real case. Shared, so neither run can drift onto a route
+    /// the other does not know — the pinned numbers only mean something while both run this one.
+    /// </summary>
+    private static Course BuildCourse()
+    {
+        var points = BuildRectangleLoop(widthMeters: 1500, heightMeters: 1750, stepMeters: 5);
+        var cumulative = Cumulative(points);
+        var length = cumulative[^1];
+        var trackPoints = points
             .Select((point, i) => new TrackPoint(point, OriginalStartAltitude + TrackAltitudeOffset + Hill(cumulative[i], length)))
             .ToArray();
 
-        var noise = new Random(42);
+        return new Course(points, cumulative, length, trackPoints);
+    }
+
+    /// <summary>The one seeded noise source, so the GPS jitter is the same sequence in both runs.</summary>
+    private static Random Noise() => new(42);
+
+    /// <summary>What the watch reports for a point on the course: the truth plus 3 m of jitter.</summary>
+    private static GeoPoint Measured(Course course, double travelled, Random noise) =>
+        Jitter(PositionAt(course.Points, course.Cumulative, travelled), noise, 3);
+
+    public static SyntheticRun Create(bool withGpsFailure = true, bool withAnyGps = true)
+    {
+        var course = BuildCourse();
+        var length = course.Length;
+
+        var noise = Noise();
         var records = new List<ActivityRecord>(DurationSeconds + 1);
-        var startTime = new DateTime(2026, 11, 19, 15, 30, 0, DateTimeKind.Utc);
+        var startTime = StartTime;
 
         GeoPoint? frozenPosition = null;
         double frozenDistance = 0;
@@ -139,7 +173,6 @@ public sealed class SyntheticRun
         for (var second = 0; second <= DurationSeconds; second++)
         {
             var travelled = Math.Min(second * SpeedMetersPerSecond, length);
-            var truePosition = PositionAt(route, cumulative, travelled);
 
             double? latitude = null;
             double? longitude = null;
@@ -151,7 +184,7 @@ public sealed class SyntheticRun
                 if (withGpsFailure && second >= GpsFailureSeconds)
                 {
                     // GPS завис: позиція і дистанція пристрою стоять на місці.
-                    frozenPosition ??= Jitter(truePosition, noise, 3);
+                    frozenPosition ??= Measured(course, travelled, noise);
                     frozenDistance = frozenDistance == 0 ? travelled : frozenDistance;
                     latitude = frozenPosition.Value.Latitude;
                     longitude = frozenPosition.Value.Longitude;
@@ -160,7 +193,7 @@ public sealed class SyntheticRun
                 }
                 else
                 {
-                    var measured = Jitter(truePosition, noise, 3);
+                    var measured = Measured(course, travelled, noise);
                     latitude = measured.Latitude;
                     longitude = measured.Longitude;
                     distance = travelled;
@@ -188,9 +221,109 @@ public sealed class SyntheticRun
 
         return new SyntheticRun
         {
-            TrackPoints = trackPoints,
+            TrackPoints = course.TrackPoints,
             TrueRouteLength = length,
             Original = new OriginalActivity { Records = records, Sport = SportKind.Running }
+        };
+    }
+
+    /// <summary>
+    /// The same route and the same athlete as <see cref="Create(bool, bool)"/>, with the timer stopped for
+    /// <paramref name="pauseSeconds"/> at <paramref name="pauseStartSecond"/>: the watch keeps
+    /// writing records while the athlete stands still, so the position, the device's own distance
+    /// and the cadence stay where they were and the elapsed time grows while the moving time does
+    /// not. Moving time is therefore <see cref="DurationSeconds"/> exactly, which is what makes
+    /// the distances comparable with the pause-free run's.
+    /// </summary>
+    /// <remarks>
+    /// The GPS never fails here: the only thing to measure is the pause. The immobility of the
+    /// standing stretch is not read as a frozen GPS, because <see cref="GpsStallDetector"/> skips
+    /// records that fall inside a pause — without that, a traffic-light wait would report
+    /// <c>GPS_STALL_DETECTED</c> and drop the whole run after it into the estimated zone.
+    /// </remarks>
+    public static SyntheticRun CreateWithPause(int pauseStartSecond, int pauseSeconds)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(pauseStartSecond);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(pauseSeconds);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(pauseStartSecond, DurationSeconds);
+
+        var course = BuildCourse();
+        var length = course.Length;
+
+        var noise = Noise();
+        var startTime = StartTime;
+        var elapsedSeconds = DurationSeconds + pauseSeconds;
+        var pauseEndSecond = pauseStartSecond + pauseSeconds;
+
+        var records = new List<ActivityRecord>(elapsedSeconds + 1);
+        GeoPoint? standingAt = null;
+        var standingDistance = 0.0;
+        var standingAltitude = 0.0;
+
+        for (var second = 0; second <= elapsedSeconds; second++)
+        {
+            // Inside the pause nothing moves. The record that opens it and the one that ends it
+            // are moving records: that is where the two ends of the pause are measured.
+            var paused = second > pauseStartSecond && second < pauseEndSecond;
+            if (paused)
+            {
+                records.Add(new ActivityRecord
+                {
+                    Timestamp = startTime.AddSeconds(second),
+                    Latitude = standingAt!.Value.Latitude,
+                    Longitude = standingAt.Value.Longitude,
+                    Altitude = standingAltitude,
+                    Distance = standingDistance,
+                    Speed = 0,
+                    HeartRate = (byte)(150 + second % 10),
+                    Power = 0,
+                    // Standing still: the detector reads a cadence of zero as the real pause it
+                    // is rather than as a frozen GPS.
+                    Cadence = 0,
+                    Temperature = 4
+                });
+                continue;
+            }
+
+            var moving = second <= pauseStartSecond ? second : second - pauseSeconds;
+            var travelled = Math.Min(moving * SpeedMetersPerSecond, length);
+            var measured = Measured(course, travelled, noise);
+            var altitude = OriginalStartAltitude + Hill(travelled, length);
+
+            if (second == pauseStartSecond)
+            {
+                standingAt = measured;
+                standingDistance = travelled;
+                standingAltitude = altitude;
+            }
+
+            records.Add(new ActivityRecord
+            {
+                Timestamp = startTime.AddSeconds(second),
+                Latitude = measured.Latitude,
+                Longitude = measured.Longitude,
+                Altitude = altitude,
+                Distance = travelled,
+                Speed = SpeedMetersPerSecond,
+                HeartRate = (byte)(150 + second % 10),
+                Power = 200,
+                Cadence = 85,
+                Temperature = 4
+            });
+        }
+
+        return new SyntheticRun
+        {
+            TrackPoints = course.TrackPoints,
+            TrueRouteLength = length,
+            Original = new OriginalActivity
+            {
+                Records = records,
+                Sport = SportKind.Running,
+                Pauses = [new PauseInterval(
+                    startTime.AddSeconds(pauseStartSecond),
+                    startTime.AddSeconds(pauseEndSecond))]
+            }
         };
     }
 

@@ -70,3 +70,27 @@ Append-only: add entries, never rewrite existing ones.
 - source_spec: `spec-1-4-discard-garbage-points.md`
   summary: `ImpossibleSpeedJudgedOverSeconds` is the same for every sport.
   evidence: The judging window multiplies the sport cap, so one 1 Hz step may be 128 m for cycling and 78 m for `Other`, against 38 m for running. Nothing is known to be wrong, but `ForSport` tunes the cap and not the window, so the per-sport argument is half-applied and no measurement says what cycling's per-step allowance should be. Worth revisiting once a real ride with broken GPS exists to measure against.
+
+- source_spec: `spec-1-5-pauses-do-not-inflate.md`
+  summary: The report's pace still divides by elapsed time; move it onto moving time with the rest of the summaries.
+  evidence: `RepairedPaceSecondsPerKm` and `OriginalPaceSecondsPerKm` are computed properties over `ElapsedSeconds`, and `MeasuredFraction` likewise. Story 1.5 added the paused seconds to the report so the contradiction is at least visible, but the formulas belong with Story 1.7, which gives the summaries one owner and takes the derived values out of the contract (AD-14, AD-16).
+
+- source_spec: `spec-1-5-pauses-do-not-inflate.md`
+  summary: Anchors can be seated inside a pause, and AD-21 asks for smoothing to stop at anchors as well.
+  evidence: `Aligner` is untouched by Story 1.5, so a device that keeps emitting moving positions while the timer is stopped can place an anchor inside the interval; distance then holds flat relative to that anchor rather than to the record that opened the pause. AD-7 says the alignment accrues no distance inside an interval, which is only true of the interpolation today. Both belong with the anchor rework (the DP/LIS chain selection noted in CLAUDE.md), which will move the pinned anchor counts anyway.
+
+- source_spec: `spec-1-5-pauses-do-not-inflate.md`
+  summary: A repaired file carries no pauses of its own, so repairing a repaired file re-inflates the distance.
+  evidence: The writer emits only `timer start` and `stop_all`, because AD-19 pins the message order and has no slot for pause events. A test now asserts the loss rather than noting it, which is honest about today but locks it in. Story 1.10 owns the written structure and should decide whether pause events join the order; the spine's own open question about one file in both roles is the same question.
+
+- source_spec: `spec-1-5-pauses-do-not-inflate.md`
+  summary: Average heart rate still includes the records recorded while the athlete stood still.
+  evidence: `ApplyAverages` averages heart rate over every record, pauses included, so a five-minute wait pulls the average down. Story 1.7 owns the summaries and is where the moving-time denominator belongs for every averaged field, not only speed.
+
+- source_spec: `spec-1-5-pauses-do-not-inflate.md`
+  summary: AD-7 and AD-19 in the spine do not yet describe what pauses did to the model and the written file.
+  evidence: AD-7 says the alignment accrues no distance inside an interval, which the interpolation now honours but the anchor search does not; AD-19's fixed message order has no slot for pause events, so "the written file gets no new event messages" is a conflict with the invariant rather than a deferral. Both need the same treatment AD-25 got after Story 1.4, and the architecture memlog still carries A-06 and A-07 as open hostile-review findings.
+
+- source_spec: `spec-1-5-pauses-do-not-inflate.md`
+  summary: The suite fails intermittently, and the FIT encoder may not be thread-safe.
+  evidence: One run in ten failed with a single test red; nine reruns, including two straight after a full rebuild, were green, and the failing test's name was not captured. Separately, the implementer measured `synthetic_track.fit` coming out with different bytes depending on whether the export test runs alone or the whole suite runs in parallel — three distinct hashes — and reproduced it on an untouched baseline tree, which points at shared state inside the FIT SDK's encoder rather than at any story. That matters beyond the fixture: the API will encode files concurrently (AD-3), so the writer has to be proven safe under parallel use before Epic 2 ships. Until then a red CI run may be this flake rather than a regression.
