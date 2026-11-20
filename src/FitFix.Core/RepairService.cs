@@ -45,12 +45,23 @@ public static class RepairService
 
         var records = cleaned.Records;
         var times = new double[records.Count];
+        var movingTimes = new double[records.Count];
         for (var i = 0; i < records.Count; i++)
+        {
             times[i] = cleaned.SecondsFromStart(records[i]);
+            movingTimes[i] = cleaned.MovingSecondsFromStart(times[i]);
+        }
 
-        var distances = InterpolateDistances(times, alignment.Anchors);
-        Smooth(distances, times, alignment.MeasuredUntilSeconds, options);
-        EnforceMonotonicity(distances, track.Length);
+        // Distance is spread over moving time, never over the clock: inside a pause the measure
+        // stops advancing, so a record there keeps the distance of the record that opened the
+        // pause and the wait earns no metres (FR-5, AD-7). With no pauses this is the identity.
+        var anchorMovingTimes = alignment.Anchors
+            .Select(anchor => cleaned.MovingSecondsFromStart(anchor.TimeSeconds))
+            .ToArray();
+
+        var distances = InterpolateDistances(movingTimes, anchorMovingTimes, alignment.Anchors);
+        Smooth(distances, times, PauseBlocks(cleaned), alignment.MeasuredUntilSeconds, options);
+        EnforceMonotonicity(distances, times, track.Length, options);
 
         var speeds = ComputeSpeeds(distances, times, options);
         var altitudeOffset = ComputeAltitudeOffset(cleaned, track);
@@ -84,6 +95,7 @@ public static class RepairService
             RepairedDistanceMeters = distances[^1],
             TrackLengthMeters = track.Length,
             ElapsedSeconds = original.ElapsedSeconds,
+            PausedSeconds = cleaned.PausedSeconds,
             MeasuredUntilSeconds = alignment.MeasuredUntilSeconds,
             AnchorCount = alignment.Anchors.Count,
             GpsStallAtSeconds = alignment.GpsStallAtSeconds,
@@ -112,10 +124,20 @@ public static class RepairService
             ? [DiagnosticCodes.PositionsDiscarded, .. alignment.Warnings]
             : alignment.Warnings;
 
-    /// <summary>Лінійна інтерполяція «час → дистанція» між Якорями.</summary>
-    private static double[] InterpolateDistances(double[] times, IReadOnlyList<Anchor> anchors)
+    /// <summary>
+    /// Linear interpolation of distance between anchors, over the measure
+    /// <paramref name="times"/> and <paramref name="anchorTimes"/> are stated in — moving
+    /// seconds, so that a pause holds the distance flat (FR-5). Both the bucket and the fraction
+    /// inside it are taken from <paramref name="anchorTimes"/>: an anchor's own
+    /// <see cref="Anchor.TimeSeconds"/> is elapsed time, and mixing the two measures would
+    /// divide moving seconds by an elapsed span and leave every record after a pause short.
+    /// <paramref name="anchors"/> is read for distance alone.
+    /// </summary>
+    private static double[] InterpolateDistances(
+        double[] times,
+        double[] anchorTimes,
+        IReadOnlyList<Anchor> anchors)
     {
-        var anchorTimes = anchors.Select(a => a.TimeSeconds).ToArray();
         var result = new double[times.Length];
 
         for (var i = 0; i < times.Length; i++)
@@ -123,21 +145,49 @@ public static class RepairService
             var index = UpperBound(anchorTimes, times[i]) - 1;
             index = Math.Clamp(index, 0, anchors.Count - 2);
 
-            var from = anchors[index];
-            var to = anchors[index + 1];
-            var span = to.TimeSeconds - from.TimeSeconds;
-            var u = span > 0 ? (times[i] - from.TimeSeconds) / span : 0;
-            result[i] = from.TrackDistance + u * (to.TrackDistance - from.TrackDistance);
+            var span = anchorTimes[index + 1] - anchorTimes[index];
+            var u = span > 0 ? (times[i] - anchorTimes[index]) / span : 0;
+            result[i] = anchors[index].TrackDistance
+                + u * (anchors[index + 1].TrackDistance - anchors[index].TrackDistance);
         }
 
         return result;
     }
 
     /// <summary>
-    /// Симетричне ковзне середнє: вузьке у Надійній зоні, широке в Розрахованій,
-    /// де лінійна інтерполяція дає злами на Якорях.
+    /// Which stretch between pause boundaries each record falls in, so a smoothing window can be
+    /// clipped at the nearest boundary instead of carrying movement into a pause (AD-21). A
+    /// boundary is a pause's own start or end, clipped to the activity: the record that opened a
+    /// pause goes with the pause — it already holds the pause's distance — and the record that
+    /// ends one opens the stretch that follows. An activity with no pauses is one stretch, which
+    /// is what leaves the numbers of a pause-free file exactly where they were.
     /// </summary>
-    private static void Smooth(double[] distances, double[] times, double measuredUntil, AlignmentOptions options)
+    private static int[] PauseBlocks(OriginalActivity activity)
+    {
+        var records = activity.Records;
+        var blocks = new int[records.Count];
+        if (activity.Pauses.Count == 0)
+            return blocks;
+
+        for (var i = 0; i < records.Count; i++)
+            blocks[i] = activity.PauseSegment(records[i].Timestamp);
+
+        return blocks;
+    }
+
+    /// <summary>
+    /// Симетричне ковзне середнє: вузьке у Надійній зоні, широке в Розрахованій,
+    /// де лінійна інтерполяція дає злами на Якорях. The window is clipped at pause boundaries,
+    /// so the records before a pause are smoothed against their own side of it and no record
+    /// inside one gains distance from the movement outside (AD-21). Monotonicity is verified
+    /// after this, never instead of it (AD-8).
+    /// </summary>
+    private static void Smooth(
+        double[] distances,
+        double[] times,
+        int[] blocks,
+        double measuredUntil,
+        AlignmentOptions options)
     {
         var raw = (double[])distances.Clone();
 
@@ -148,11 +198,11 @@ public static class RepairService
                 : options.EstimatedZoneSmoothingSeconds;
 
             var low = i;
-            while (low > 0 && times[i] - times[low - 1] <= halfWidth)
+            while (low > 0 && times[i] - times[low - 1] <= halfWidth && blocks[low - 1] == blocks[i])
                 low--;
 
             var high = i;
-            while (high < distances.Length - 1 && times[high + 1] - times[i] <= halfWidth)
+            while (high < distances.Length - 1 && times[high + 1] - times[i] <= halfWidth && blocks[high + 1] == blocks[i])
                 high++;
 
             // Симетричне вікно — щоб згладжування не зсувало дистанцію вперед або назад.
@@ -167,8 +217,19 @@ public static class RepairService
         }
     }
 
-    /// <summary>Гарантує FR-5: функція «час → дистанція» монотонно неспадна, фініш = кінець треку.</summary>
-    private static void EnforceMonotonicity(double[] distances, double trackLength)
+    /// <summary>
+    /// Гарантує FR-5: функція «час → дистанція» монотонно неспадна, фініш = кінець треку.
+    /// The finish is pinned to the track length, so whatever the series was short by is paid at
+    /// the last record — which is how a wrongly scaled interpolation can look like a correct
+    /// total. The payment is therefore bounded by what the athlete could cover in that last
+    /// interval: anything more is a defect upstream, and it says so instead of shipping a
+    /// teleport at the finish line (AD-8).
+    /// </summary>
+    private static void EnforceMonotonicity(
+        double[] distances,
+        double[] times,
+        double trackLength,
+        AlignmentOptions options)
     {
         var running = 0.0;
         for (var i = 0; i < distances.Length; i++)
@@ -177,7 +238,18 @@ public static class RepairService
             distances[i] = running;
         }
 
-        distances[^1] = trackLength;
+        var last = distances.Length - 1;
+        var shortfall = trackLength - distances[last];
+        var interval = last > 0 ? times[last] - times[last - 1] : 0;
+        var plausible = options.MaxSpeedMetersPerSecond * interval + options.SpeedToleranceMeters;
+
+        if (shortfall > plausible)
+            throw new InvalidOperationException(
+                $"The repaired series ends {shortfall:F1} m short of the track, and the last " +
+                $"{interval:F0} s cannot cover more than {plausible:F1} m: the distance series is wrong, " +
+                "not the finish.");
+
+        distances[last] = trackLength;
     }
 
     private static double[] ComputeSpeeds(double[] distances, double[] times, AlignmentOptions options)
