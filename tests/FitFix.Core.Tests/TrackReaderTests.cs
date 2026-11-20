@@ -56,7 +56,7 @@ public class TrackReaderTests
         Assert.Equal(TrackFormat.Gpx, format);
         Assert.Equal(
             run.ReferenceTrack.Length,
-            ReferenceTrack.FromPoints(fromGpx).Length,
+            ReferenceTrack.FromPoints(fromGpx, SyntheticRun.Options).Length,
             run.ReferenceTrack.Length * 0.001);
     }
 
@@ -92,7 +92,7 @@ public class TrackReaderTests
         using var stream = AsStream(ToGpx(run.TrackPoints));
 
         // FR-2: формат визначається за вмістом, а не за розширенням.
-        var track = TrackReader.ReadReferenceTrack(stream);
+        var track = TrackReader.ReadReferenceTrack(stream, SyntheticRun.Options);
         Assert.True(track.Length > 6000);
     }
 
@@ -102,14 +102,16 @@ public class TrackReaderTests
         var run = SyntheticRun.Create();
         using var stream = AsStream(ToGpx([run.TrackPoints[0]]));
 
-        Assert.Throws<InvalidTrackFileException>(() => TrackReader.ReadReferenceTrack(stream));
+        Assert.Throws<InvalidTrackFileException>(
+            () => TrackReader.ReadReferenceTrack(stream, SyntheticRun.Options));
     }
 
     [Fact]
     public void An_unknown_format_is_rejected()
     {
         using var stream = AsStream("hello,world\n1,2\n");
-        Assert.Throws<InvalidTrackFileException>(() => TrackReader.ReadReferenceTrack(stream));
+        Assert.Throws<InvalidTrackFileException>(
+            () => TrackReader.ReadReferenceTrack(stream, new AlignmentOptions()));
     }
 
     [Fact]
@@ -118,7 +120,7 @@ public class TrackReaderTests
         var run = SyntheticRun.Create();
 
         using var gpx = AsStream(ToGpx(run.TrackPoints));
-        var trackFromGpx = TrackReader.ReadReferenceTrack(gpx);
+        var trackFromGpx = TrackReader.ReadReferenceTrack(gpx, SyntheticRun.Options);
 
         var fromGpx = RepairService.Repair(run.Original, trackFromGpx);
         var fromFit = RepairService.Repair(run.Original, run.ReferenceTrack);

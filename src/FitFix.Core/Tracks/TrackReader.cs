@@ -17,10 +17,16 @@ public enum TrackFormat
 /// </summary>
 public static class TrackReader
 {
-    public static ReferenceTrack ReadReferenceTrack(Stream stream, double minSpacingMeters = 0.3)
+    /// <summary>
+    /// Reads the track and normalises it with the de-duplication spacing from
+    /// <paramref name="options"/>; no threshold is defaulted here (AD-10).
+    /// </summary>
+    public static ReferenceTrack ReadReferenceTrack(Stream stream, AlignmentOptions options)
     {
+        ArgumentNullException.ThrowIfNull(options);
+
         var points = ReadPoints(stream, out _);
-        return ReferenceTrack.FromPoints(points, minSpacingMeters);
+        return ReferenceTrack.FromPoints(points, options);
     }
 
     public static IReadOnlyList<TrackPoint> ReadPoints(Stream stream, out TrackFormat format)
@@ -41,10 +47,13 @@ public static class TrackReader
         };
     }
 
-    public static ReferenceTrack ReadReferenceTrackFile(string path, double minSpacingMeters = 0.3)
+    /// <inheritdoc cref="ReadReferenceTrack(Stream, AlignmentOptions)"/>
+    public static ReferenceTrack ReadReferenceTrackFile(string path, AlignmentOptions options)
     {
+        ArgumentNullException.ThrowIfNull(options);
+
         using var stream = System.IO.File.OpenRead(path);
-        return ReadReferenceTrack(stream, minSpacingMeters);
+        return ReadReferenceTrack(stream, options);
     }
 
     private static TrackFormat DetectFormat(Stream stream)

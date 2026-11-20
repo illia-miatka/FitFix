@@ -31,7 +31,7 @@ public class FitRoundTripTests
         var track = run.ReferenceTrack;
         var result = RepairService.Repair(run.Original, track);
 
-        var bytes = FitActivityWriter.WriteToArray(result);
+        var bytes = FitActivityWriter.WriteToArray(result, utcOffsetSeconds: 0);
         using var stream = new MemoryStream(bytes);
         var reread = FitActivityReader.Read(stream);
 
@@ -48,7 +48,7 @@ public class FitRoundTripTests
     {
         var run = SyntheticRun.Create();
         var result = RepairService.Repair(run.Original, run.ReferenceTrack);
-        var bytes = FitActivityWriter.WriteToArray(result);
+        var bytes = FitActivityWriter.WriteToArray(result, utcOffsetSeconds: 0);
 
         var inspection = FitMessageInspector.Inspect(bytes);
 

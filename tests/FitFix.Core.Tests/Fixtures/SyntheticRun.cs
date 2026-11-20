@@ -31,7 +31,10 @@ public sealed class SyntheticRun
     public required OriginalActivity Original { get; init; }
     public required double TrueRouteLength { get; init; }
 
-    public ReferenceTrack ReferenceTrack => ReferenceTrack.FromPoints(TrackPoints);
+    /// <summary>The options every test of this fixture uses — the run is a run (AD-10).</summary>
+    public static AlignmentOptions Options => AlignmentOptions.ForSport(SportKind.Running);
+
+    public ReferenceTrack ReferenceTrack => ReferenceTrack.FromPoints(TrackPoints, Options);
 
     public static SyntheticRun Create(bool withGpsFailure = true, bool withAnyGps = true)
     {

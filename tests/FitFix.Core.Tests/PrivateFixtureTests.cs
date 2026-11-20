@@ -28,7 +28,7 @@ public class PrivateFixtureTests
             return;
 
         var original = FitActivityReader.ReadFile(originalPath);
-        var track = TrackReader.ReadReferenceTrackFile(trackPath);
+        var track = TrackReader.ReadReferenceTrackFile(trackPath, AlignmentOptions.ForSport(original.Sport));
         var result = RepairService.Repair(original, track);
 
         Assert.Equal(ExpectedTrackLength, track.Length, ExpectedTrackLength * 0.01);
@@ -44,7 +44,7 @@ public class PrivateFixtureTests
             Assert.True(result.Records[i].Distance >= result.Records[i - 1].Distance);
 
         // Файл має читатись назад (SM-2).
-        var bytes = FitActivityWriter.WriteToArray(result);
+        var bytes = FitActivityWriter.WriteToArray(result, utcOffsetSeconds: 0);
         using var stream = new MemoryStream(bytes);
         var reread = FitActivityReader.Read(stream);
         Assert.Equal(result.Records.Count, reread.Records.Count);

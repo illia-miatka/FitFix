@@ -33,19 +33,22 @@ public sealed class ReferenceTrack
     public double? StartAltitude => _altitudes[0];
 
     /// <summary>
-    /// Будує трек, відкидаючи точки, що стоять ближче ніж <paramref name="minSpacingMeters"/>
-    /// до попередньої (годинники й редактори часто дублюють координати).
+    /// Builds the track, dropping every point closer to the previous one than
+    /// <see cref="AlignmentOptions.TrackMinSpacingMeters"/> (watches and route editors often
+    /// repeat a coordinate). The spacing is a tuning threshold, so it arrives in
+    /// <paramref name="options"/> rather than as a default on this signature (AD-10).
     /// </summary>
-    public static ReferenceTrack FromPoints(IEnumerable<TrackPoint> source, double minSpacingMeters = 0.3)
+    public static ReferenceTrack FromPoints(IEnumerable<TrackPoint> source, AlignmentOptions options)
     {
         ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(options);
 
         var points = new List<GeoPoint>();
         var altitudes = new List<double?>();
 
         foreach (var point in source)
         {
-            if (points.Count > 0 && Geo.Distance(point.Position, points[^1]) <= minSpacingMeters)
+            if (points.Count > 0 && Geo.Distance(point.Position, points[^1]) <= options.TrackMinSpacingMeters)
                 continue;
             points.Add(point.Position);
             altitudes.Add(point.Altitude);
@@ -57,7 +60,7 @@ public sealed class ReferenceTrack
         if (points.Count < 2)
             throw new MalformedArgumentException(
                 DiagnosticCodes.TrackWithoutDistinctPoints,
-                $"The reference track holds no 2 points more than {minSpacingMeters} m apart ('{nameof(source)}').");
+                $"The reference track holds no 2 points more than {options.TrackMinSpacingMeters} m apart ('{nameof(source)}').");
 
         var cumulative = new double[points.Count];
         for (var i = 1; i < points.Count; i++)
