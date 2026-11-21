@@ -122,8 +122,11 @@ public class RepairServiceTests
         var tenTimesLarger = FastestCleaning(LeadingGarbage(50_000, 10));
 
         Assert.True(small > TimeSpan.Zero, "the smaller run was too quick to measure at all");
+        // The bound is 50 and not 25: the smaller run is milliseconds, so a loaded machine can
+        // stretch the ratio well past its unloaded 7.8 — it reached 30 under four CPU hogs — while
+        // quadratic growth lands near 100 either way. CI runners are shared hardware.
         Assert.True(
-            tenTimesLarger < small * 25,
+            tenTimesLarger < small * 50,
             $"ten times the garbage cost {tenTimesLarger / small:F0} times the work "
                 + $"({small.TotalMilliseconds:F1} ms → {tenTimesLarger.TotalMilliseconds:F1} ms)");
     }

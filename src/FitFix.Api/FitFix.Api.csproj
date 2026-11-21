@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>FitFix.Api</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The shell depends on the core and the core on nothing (AD-1): no other reference
+         belongs here, and the core must never gain one back. -->
+    <ProjectReference Include="..\FitFix.Core\FitFix.Core.csproj" />
+  </ItemGroup>
+
+</Project>
