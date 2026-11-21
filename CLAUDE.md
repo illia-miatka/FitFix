@@ -26,7 +26,7 @@
 - [x] Жорсткий cutoff `t > 1720` → `GpsStallDetector` (нерухомість ≤ 15 м протягом ≥ 90 с при ненульовому каденсі).
 - [x] Поріг «1300 с» для нульової потужності → локальне правило: власна дистанція пристрою не зросла за останні 10 с.
 - [x] Пороги швидкості за видом спорту → `AlignmentOptions.ForSport` (біг 7, вело 25, інше 15 м/с).
-- [ ] Вибір найдовшого правдоподібного ланцюжка якорів (DP / LIS) — зараз жадібний набір.
+- [ ] Вибір найдовшого правдоподібного ланцюжка якорів (DP / LIS) — зараз жадібний набір. Сюди ж AD-21: згладжування обрізається межами пауз, але не межами Якорів.
 - [x] Паузи (timer stop/start) оригіналу — `OriginalActivity.Pauses`, дистанція розподіляється по moving time (FR-5).
 - [x] Кола (laps) оригіналу — `OriginalActivity.Laps` + `LapPartition`, записувач пише коло на кожен інтервал (FR-6).
 
@@ -65,8 +65,8 @@
 - Еталонний трек: FIT, GPX, TCX. Малювання маршруту на карті — пізніше.
 - Stateless: файли не зберігаються.
 - Стек (вибрано 19.11.2026, перевірено спайком):
-  - Backend: **.NET 10** (LTS; локально SDK 10.0.302), ASP.NET Core Minimal API (ще не створено), **`Garmin.FIT.Sdk` 21.222.0** — офіційний Garmin FIT SDK, читання й запис. GPX/TCX — `System.Xml.Linq`. Формат треку визначається за вмістом файлу.
-  - Проєкти: `src/FitFix.Core` (чисте ядро, без вебу), `src/FitFix.Cli` (`fitfix repair ORIGINAL TRACK -o OUT`), `tests/FitFix.Core.Tests` (xunit). Далі — `src/FitFix.Api`.
+  - Backend: **.NET 10** (LTS; локально SDK 10.0.302), ASP.NET Core Minimal API (`src/FitFix.Api`, сторі 2.1), **`Garmin.FIT.Sdk` 21.222.0** — офіційний Garmin FIT SDK, читання й запис. GPX/TCX — `System.Xml.Linq`. Формат треку визначається за вмістом файлу.
+  - Проєкти: `src/FitFix.Core` (чисте ядро, без вебу), `src/FitFix.Cli` (`fitfix repair ORIGINAL TRACK -o OUT`), `src/FitFix.Api` (Minimal API: `/health` і контракт відмов), `tests/FitFix.Core.Tests` і `tests/FitFix.Api.Tests` (xunit; API-тести ходять справжнім HTTP по Kestrel). Далі — `web/`.
   - Frontend: React 19, Vite, TypeScript, Tailwind 4 (`@tailwindcss/vite`), react-leaflet 5 + Leaflet 1.9 (темна підкладка CARTO), Recharts 3, lucide-react, шрифти `@fontsource/unbounded` + `@fontsource/manrope`. **Node локально ще не встановлений.**
   - Один Docker-образ: збірка фронту → статика роздається ASP.NET Core. `docker compose up`. Публічного хостингу в MVP немає.
   - API (чернетка): `POST /api/inspect` (метадані одного файлу), `POST /api/repair` (multipart: original, track → JSON-звіт + FIT у base64).
