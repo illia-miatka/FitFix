@@ -1,6 +1,11 @@
 namespace FitFix.Core;
 
-/// <summary>Звіт про виправлення — те, що UI показує у прев'ю «До / Після» (PRD §4.3).</summary>
+/// <summary>
+/// The report of one repair — what a shell shows as the "before and after" preview (PRD §4.3).
+/// Every number here is settled when the report is built, most of them copied from the summary
+/// the core computed (AD-16): the report carries finished values and derives none, so the CLI, the
+/// API DTO and the preview cannot disagree about the same run (AD-14).
+/// </summary>
 public sealed record RepairReport
 {
     public required double OriginalDistanceMeters { get; init; }
@@ -15,11 +20,40 @@ public sealed record RepairReport
     /// </summary>
     public required double PausedSeconds { get; init; }
 
-    /// <summary>Elapsed time minus the pauses — the time the written file claims (FR-6).</summary>
-    public double MovingSeconds => ElapsedSeconds - PausedSeconds;
+    /// <summary>
+    /// The time the written file claims as its <c>total_timer_time</c>, taken from the summary the
+    /// core settled (AD-16). Elapsed time minus the pauses in the ordinary case — but a pause list
+    /// that swallows the whole activity is ignored there, and this is the number the file states
+    /// rather than the subtraction a reader would make for itself (FR-6, AD-14).
+    /// </summary>
+    public required double MovingSeconds { get; init; }
 
-    /// <summary>До цього часу позиція виміряна Якорями, далі — розрахована.</summary>
+    /// <summary>
+    /// Up to this second the position was measured by anchors; past it, it is interpolated between
+    /// them — the boundary between the measured and the estimated zone (FR-4).
+    /// </summary>
     public required double MeasuredUntilSeconds { get; init; }
+
+    /// <summary>
+    /// The share of the activity whose position was measured by anchors. Settled when the report
+    /// is built, like every other value here: a computed property is a second owner of the number
+    /// and the DTO would then be free to divide differently (AD-14).
+    /// </summary>
+    public required double MeasuredFraction { get; init; }
+
+    /// <summary>
+    /// The pace before the repair, s/km: the distance the device recorded over the Original's own
+    /// moving time, both of them the watch's own numbers, so the "before" stays what the user saw
+    /// in Strava (AD-16). <c>null</c> when the device recorded no distance.
+    /// </summary>
+    public required double? OriginalPaceSecondsPerKm { get; init; }
+
+    /// <summary>
+    /// The pace after the repair, s/km, over the moving seconds the written file states — the same
+    /// denominator as its average speed, so a shell cannot show a pace the file contradicts.
+    /// <c>null</c> when there is no pace to state: nothing covered, or nothing moving.
+    /// </summary>
+    public required double? RepairedPaceSecondsPerKm { get; init; }
 
     public required int AnchorCount { get; init; }
     public double? GpsStallAtSeconds { get; init; }
@@ -38,24 +72,37 @@ public sealed record RepairReport
     /// </summary>
     public required int LapCount { get; init; }
 
+    /// <summary>
+    /// The climb and the descent of the repaired activity, m — the sums of the rises and of the
+    /// falls in the track's own altitude series (AD-16), which the file states as
+    /// <c>total_ascent</c> and <c>total_descent</c>. Both are <c>null</c> for a track that carries
+    /// no altitude: a flat zero there would read as a measurement of flat ground.
+    /// </summary>
+    public required double? ElevationGainMeters { get; init; }
+
+    /// <inheritdoc cref="ElevationGainMeters"/>
+    public required double? ElevationLossMeters { get; init; }
+
     public required IReadOnlyList<string> Warnings { get; init; }
-
-    public double MeasuredFraction => ElapsedSeconds > 0 ? MeasuredUntilSeconds / ElapsedSeconds : 0;
-
-    public double? OriginalPaceSecondsPerKm => OriginalDistanceMeters > 0
-        ? ElapsedSeconds / (OriginalDistanceMeters / 1000.0)
-        : null;
-
-    public double RepairedPaceSecondsPerKm => RepairedDistanceMeters > 0
-        ? ElapsedSeconds / (RepairedDistanceMeters / 1000.0)
-        : 0;
 }
 
-/// <summary>Відновлена активність: записи + Звіт.</summary>
+/// <summary>
+/// The repaired activity: the records, the report, the summary every number in it was settled in,
+/// the alignment it was built from and the Original it was built out of.
+/// </summary>
 public sealed class RepairResult
 {
     public required IReadOnlyList<RepairedRecord> Records { get; init; }
     public required RepairReport Report { get; init; }
+
+    /// <summary>
+    /// Every summary number the activity and its laps state, computed once by the core (AD-16).
+    /// The FIT writer transcribes these values and the API DTO copies them; neither averages,
+    /// sums or divides over a series of its own, so two entry points cannot disagree about the
+    /// same run.
+    /// </summary>
+    public required ActivitySummary Summary { get; init; }
+
     public required Alignment Alignment { get; init; }
 
     /// <summary>

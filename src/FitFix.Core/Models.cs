@@ -296,6 +296,21 @@ public sealed record OriginalActivity
     public double PausedSeconds => PausedSecondsBefore(ElapsedSeconds);
 
     /// <summary>
+    /// The activity with a pause list that cannot be true struck out: one that leaves no moving
+    /// second at all, while the records plainly cover a distance. A moving time of zero beside a
+    /// full distance reads as an infinite pace, and spreading the distance over a measure that
+    /// never advances leaves every record at the start and the whole track owed at the finish.
+    /// <para>
+    /// The one owner of that disbelief (AD-7): the repair applies it before it computes a single
+    /// moving second, and the summary applies it to whatever activity it is handed, so no caller
+    /// can decide it differently. An activity with a believable pause list — or none — is returned
+    /// as it is.
+    /// </para>
+    /// </summary>
+    public OriginalActivity WithoutImpossiblePauses() =>
+        Pauses.Count == 0 || PausedSeconds < ElapsedSeconds ? this : this with { Pauses = [] };
+
+    /// <summary>
     /// The seconds of movement that preceded an instant: elapsed seconds minus the pauses before
     /// it. Inside a pause the number stops advancing, which is how distance spread over this
     /// measure stays flat across a pause by construction rather than by a special case (FR-5).

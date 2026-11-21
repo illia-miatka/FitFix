@@ -9,26 +9,17 @@ namespace FitFix.Core.Fit;
 /// file_id → event(start) → records → event(stop_all) → lap × M → session → activity (PRD FR-6,
 /// AD-19). The laps are the Original's own (AD-24): the writer transcribes the partition the
 /// model derived and never invents a boundary of its own.
+/// <para>
+/// Every number a summary message states comes from <see cref="RepairResult.Summary"/>, computed
+/// once by the core (AD-16). This file converts units and types — metres per second to the FIT
+/// field's <c>float</c>, a climb to <c>total_ascent</c>'s whole metres — and performs no
+/// arithmetic over a series: no average, no sum, no distance divided by a duration. A value the
+/// summary leaves absent is written as no field at all, because absent and zero are different
+/// claims about an activity.
+/// </para>
 /// </summary>
 public static class FitActivityWriter
 {
-    /// <summary>
-    /// One lap as it will be written: the interval the model derived, the repaired records its
-    /// boundaries fall on, and the three numbers read off them. Assembled once, before anything
-    /// is encoded, so that the laps cannot disagree with each other about where a boundary is —
-    /// a lap's end index is the next lap's start index, which is what makes the distances
-    /// telescope to the activity's total instead of counting a metre twice or losing it (FR-6).
-    /// </summary>
-    private readonly record struct WrittenLap(
-        LapInterval Interval,
-        int FirstRecord,
-        int FirstSensorRecord,
-        int LastRecord,
-        float Elapsed,
-        float Timer,
-        float Distance,
-        ushort MessageIndex);
-
     /// <summary>
     /// The most laps a FIT file can carry. <c>message_index</c> is a 16-bit field whose top bits
     /// are reserved — one marks a selected message, three more are reserved outright — leaving
@@ -41,6 +32,12 @@ public static class FitActivityWriter
     /// Writes the repaired activity. <paramref name="utcOffsetSeconds"/> is stated by the caller
     /// rather than defaulted, so no entry point can inherit a silent zero (AD-10); Story 1.10
     /// takes the real offset from the original activity.
+    /// <para>
+    /// <see cref="RepairResult.Summary"/> is taken to describe <see cref="RepairResult.Records"/>:
+    /// that is what <see cref="ActivitySummary.Of"/> produces and the one place the two are
+    /// checked against each other, because a writer that measured the records again to verify them
+    /// would be the second owner this story exists to remove (AD-16).
+    /// </para>
     /// </summary>
     public static void Write(Stream stream, RepairResult result, int utcOffsetSeconds)
     {
@@ -57,24 +54,41 @@ public static class FitActivityWriter
 
         var start = new FitDateTime(records[0].Timestamp);
         var end = new FitDateTime(records[^1].Timestamp);
-        var elapsed = (float)(records[^1].Timestamp - records[0].Timestamp).TotalSeconds;
 
-        // Timer time is elapsed time minus what the athlete stood still for (FR-6, AD-7). The
-        // pauses come from the Original the repair worked from, the one model of a pause there is;
-        // elapsed time stays the Original's own span (±1 s). Pauses that swallow the whole
-        // activity are an event stream that cannot be true — a timer time of zero beside a full
-        // distance reads as an infinite pace — so they are ignored rather than written.
-        var paused = result.CleanedOriginal.PausedSeconds;
-        var pausesAreTrustworthy = paused < elapsed;
-        var timer = pausesAreTrustworthy ? (float)(elapsed - paused) : elapsed;
-        var totalDistance = (float)records[^1].Distance;
+        // Every duration, distance and average below is the core's (AD-16). The laps are the
+        // Original's own, as a partition of the activity (AD-24): an Original with no lap message
+        // yields exactly one lap covering everything, which is the file this writer produced
+        // before laps existed.
+        var summary = result.Summary;
+        var laps = summary.Laps;
 
-        // The laps the Original recorded, as a partition of the activity (AD-24). An Original with
-        // no lap message yields exactly one lap covering everything, which is the file this writer
-        // produced before laps existed. The laps are told whether the pause list can be believed,
-        // rather than each deciding for itself: a per-lap fallback would leave the laps' timer
-        // times summing to the elapsed time while the session states a shorter one.
-        var laps = LapsOf(result, pausesAreTrustworthy);
+        // A limit of the format rather than a property of the activity, which is why it is refused
+        // here and not where the laps were measured (AD-18).
+        if (laps.Count > MaxLaps)
+            throw new MalformedArgumentException(
+                DiagnosticCodes.ActivityTooManyLaps,
+                $"The activity has {laps.Count} laps, and a FIT file can index {MaxLaps} " +
+                $"('{nameof(result)}').");
+
+        // An activity nobody lapped is one lap covering everything (AD-24), so an empty list is a
+        // summary of something else: writing it would produce a file with no lap message and
+        // `num_laps = 0`, which Strava may refuse (AD-19).
+        if (laps.Count == 0)
+            throw new MalformedArgumentException(
+                DiagnosticCodes.SummaryWithoutLaps,
+                $"The summary carries no lap, so there is no lap message to write ('{nameof(result)}').");
+
+        // Each lap's positions are read at the records its boundaries fall on. A summary measured
+        // from a different series would index past this one, and an index out of range is not a
+        // refusal a shell can report (AD-18).
+        foreach (var lap in laps)
+        {
+            if (lap.FirstRecord < 0 || lap.LastRecord >= records.Count)
+                throw new MalformedArgumentException(
+                    DiagnosticCodes.SummarySeriesMismatch,
+                    $"A lap of the summary spans records {lap.FirstRecord}..{lap.LastRecord} of a "
+                        + $"series that holds {records.Count} ('{nameof(result)}').");
+        }
 
         var encoder = new Encode(ProtocolVersion.V20);
         encoder.Open(stream);
@@ -88,10 +102,14 @@ public static class FitActivityWriter
         encoder.Write(BuildTimerEvent(end, EventType.StopAll));
 
         for (var index = 0; index < laps.Count; index++)
-            encoder.Write(BuildLap(result, laps[index], lastOfTheActivity: index == laps.Count - 1));
+            encoder.Write(BuildLap(
+                result,
+                laps[index],
+                messageIndex: (ushort)index,
+                lastOfTheActivity: index == laps.Count - 1));
 
-        encoder.Write(BuildSession(result, start, end, elapsed, timer, totalDistance, laps.Count));
-        encoder.Write(BuildActivity(end, timer, utcOffsetSeconds));
+        encoder.Write(BuildSession(result, start, end, laps.Count));
+        encoder.Write(BuildActivity(end, (float)summary.Total.MovingSeconds, utcOffsetSeconds));
 
         encoder.Close();
     }
@@ -160,88 +178,27 @@ public static class FitActivityWriter
     }
 
     /// <summary>
-    /// The laps to write, in time order with <c>message_index</c> counting from zero. Boundaries
-    /// come from the model's partition — where the athlete pressed the button (AD-24) — while the
-    /// distance of each lap is read off the repaired series at those boundaries, because the
-    /// Original's own lap distance was measured by the GPS that failed. Elapsed time is the lap's
-    /// own span, so the laps' elapsed times sum to the activity's; timer time is that span less
-    /// the pauses that fall inside it (FR-5, AD-7), so the laps' timer times sum to the session's.
-    /// A lap that is nothing but a pause therefore states a timer time of zero, which is what
-    /// standing still for a whole lap is. When <paramref name="pausesAreTrustworthy"/> is false the
-    /// pause list is ignored outright, exactly as the session ignores it.
+    /// One <c>lap</c> message, transcribed from the lap's own summary (AD-16). The boundaries are
+    /// where the athlete pressed the button (AD-24) and the numbers are the core's: a lap that was
+    /// nothing but a pause therefore states a timer time of zero and no average speed at all,
+    /// which is what standing still for a whole lap is.
     /// </summary>
-    /// <remarks>
-    /// The repaired series carries one record per record of <see cref="RepairResult.CleanedOriginal"/>,
-    /// at the same timestamps, so a record index means the same thing in both — which is why the
-    /// boundaries are resolved by the model's own <see cref="OriginalActivity.NearestRecordIndex"/>
-    /// and the distances read out of <see cref="RepairResult.Records"/> at the result.
-    /// </remarks>
-    private static IReadOnlyList<WrittenLap> LapsOf(RepairResult result, bool pausesAreTrustworthy)
-    {
-        var original = result.CleanedOriginal;
-        var records = result.Records;
-        var partition = original.LapPartition();
-
-        if (partition.Count > MaxLaps)
-            throw new MalformedArgumentException(
-                DiagnosticCodes.ActivityTooManyLaps,
-                $"The activity has {partition.Count} laps, and a FIT file can index {MaxLaps} " +
-                $"('{nameof(result)}').");
-
-        var laps = new List<WrittenLap>(partition.Count);
-        var first = 0;
-
-        for (var index = 0; index < partition.Count; index++)
-        {
-            var interval = partition[index];
-
-            // Each lap begins on the record the previous one ended on, so the laps chain through
-            // the series by construction and the shared record cannot be read at two different
-            // indices. The last lap always ends on the last record; the clamp on the others is
-            // belt and braces — the partition already drops a cut no record separates from the
-            // previous boundary — but it moves a boundary by one record rather than writing a lap
-            // of no distance should that ever stop holding.
-            var last = index == partition.Count - 1
-                ? records.Count - 1
-                : Math.Clamp(original.NearestRecordIndex(interval.End), first + 1, records.Count - 1);
-
-            var elapsed = (float)(interval.End - interval.Start).TotalSeconds;
-            var paused = pausesAreTrustworthy
-                ? original.PausedSecondsBefore(original.SecondsFromStart(interval.End))
-                    - original.PausedSecondsBefore(original.SecondsFromStart(interval.Start))
-                : 0;
-
-            laps.Add(new WrittenLap(
-                interval,
-                first,
-                // The shared record belongs to the earlier lap's sensor window and not to both:
-                // the distances telescope across it, so counting its heart rate in two laps would
-                // be the one value paid for twice.
-                index == 0 ? first : first + 1,
-                last,
-                elapsed,
-                (float)Math.Max(0, elapsed - paused),
-                (float)(records[last].Distance - records[first].Distance),
-                (ushort)index));
-
-            first = last;
-        }
-
-        return laps;
-    }
-
-    private static LapMesg BuildLap(RepairResult result, WrittenLap lap, bool lastOfTheActivity)
+    private static LapMesg BuildLap(
+        RepairResult result,
+        IntervalSummary lap,
+        ushort messageIndex,
+        bool lastOfTheActivity)
     {
         var mesg = new LapMesg();
-        mesg.SetTimestamp(new FitDateTime(lap.Interval.End));
-        mesg.SetStartTime(new FitDateTime(lap.Interval.Start));
-        mesg.SetTotalElapsedTime(lap.Elapsed);
-        mesg.SetTotalTimerTime(lap.Timer);
-        mesg.SetTotalDistance(lap.Distance);
+        mesg.SetTimestamp(new FitDateTime(lap.End));
+        mesg.SetStartTime(new FitDateTime(lap.Start));
+        mesg.SetTotalElapsedTime((float)lap.ElapsedSeconds);
+        mesg.SetTotalTimerTime((float)lap.MovingSeconds);
+        mesg.SetTotalDistance((float)lap.DistanceMeters);
         mesg.SetSport(MapSport(result.Sport));
         mesg.SetEvent(Event.Lap);
         mesg.SetEventType(EventType.Stop);
-        mesg.SetMessageIndex(lap.MessageIndex);
+        mesg.SetMessageIndex(messageIndex);
 
         // Why the lap ended, which Strava reads to tell a split the athlete pressed from an
         // automatic one. The last lap ends with the session; for the others the Original's own
@@ -255,36 +212,55 @@ public static class FitActivityWriter
         mesg.SetEndPositionLat(FitDecoder.ToSemicircles(records[lap.LastRecord].Latitude));
         mesg.SetEndPositionLong(FitDecoder.ToSemicircles(records[lap.LastRecord].Longitude));
 
-        ApplyAverages(records, lap.FirstSensorRecord, lap.LastRecord, lap.Timer, lap.Distance,
-            (speed, avgHr, maxHr, avgPower, maxPower, avgCadence) =>
-            {
-                mesg.SetAvgSpeed(speed);
-                mesg.SetEnhancedAvgSpeed(speed);
-                if (avgHr is not null) mesg.SetAvgHeartRate(avgHr);
-                if (maxHr is not null) mesg.SetMaxHeartRate(maxHr);
-                if (avgPower is not null) mesg.SetAvgPower(avgPower);
-                if (maxPower is not null) mesg.SetMaxPower(maxPower);
-                if (avgCadence is not null) mesg.SetAvgCadence(avgCadence);
-            });
+        if (lap.AverageSpeedMetersPerSecond is { } averageSpeed)
+        {
+            mesg.SetAvgSpeed((float)averageSpeed);
+            mesg.SetEnhancedAvgSpeed((float)averageSpeed);
+        }
+
+        if (lap.MaximumSpeedMetersPerSecond is { } maximumSpeed)
+        {
+            mesg.SetMaxSpeed((float)maximumSpeed);
+            mesg.SetEnhancedMaxSpeed((float)maximumSpeed);
+        }
+
+        if (lap.AverageHeartRate is { } averageHeartRate)
+            mesg.SetAvgHeartRate(averageHeartRate);
+        if (lap.MaximumHeartRate is { } maximumHeartRate)
+            mesg.SetMaxHeartRate(maximumHeartRate);
+        if (lap.AveragePower is { } averagePower)
+            mesg.SetAvgPower(averagePower);
+        if (lap.MaximumPower is { } maximumPower)
+            mesg.SetMaxPower(maximumPower);
+        if (lap.AverageCadence is { } averageCadence)
+            mesg.SetAvgCadence(averageCadence);
+        if (lap.MaximumCadence is { } maximumCadence)
+            mesg.SetMaxCadence(maximumCadence);
+        if (lap.ElevationGainMeters is { } gain)
+            mesg.SetTotalAscent(WholeMetres(gain));
+        if (lap.ElevationLossMeters is { } loss)
+            mesg.SetTotalDescent(WholeMetres(loss));
 
         return mesg;
     }
 
+    /// <summary>
+    /// The <c>session</c> message, transcribed from the activity's own summary (AD-16).
+    /// </summary>
     private static SessionMesg BuildSession(
         RepairResult result,
         FitDateTime start,
         FitDateTime end,
-        float elapsed,
-        float timer,
-        float distance,
         int lapCount)
     {
+        var total = result.Summary.Total;
+
         var mesg = new SessionMesg();
         mesg.SetTimestamp(end);
         mesg.SetStartTime(start);
-        mesg.SetTotalElapsedTime(elapsed);
-        mesg.SetTotalTimerTime(timer);
-        mesg.SetTotalDistance(distance);
+        mesg.SetTotalElapsedTime((float)total.ElapsedSeconds);
+        mesg.SetTotalTimerTime((float)total.MovingSeconds);
+        mesg.SetTotalDistance((float)total.DistanceMeters);
         mesg.SetSport(MapSport(result.Sport));
         mesg.SetSubSport(SubSport.Generic);
         mesg.SetEvent(Event.Session);
@@ -300,17 +276,34 @@ public static class FitActivityWriter
         mesg.SetStartPositionLat(FitDecoder.ToSemicircles(records[0].Latitude));
         mesg.SetStartPositionLong(FitDecoder.ToSemicircles(records[0].Longitude));
 
-        ApplyAverages(records, 0, records.Count - 1, timer, distance,
-            (speed, avgHr, maxHr, avgPower, maxPower, avgCadence) =>
-            {
-                mesg.SetAvgSpeed(speed);
-                mesg.SetEnhancedAvgSpeed(speed);
-                if (avgHr is not null) mesg.SetAvgHeartRate(avgHr);
-                if (maxHr is not null) mesg.SetMaxHeartRate(maxHr);
-                if (avgPower is not null) mesg.SetAvgPower(avgPower);
-                if (maxPower is not null) mesg.SetMaxPower(maxPower);
-                if (avgCadence is not null) mesg.SetAvgCadence(avgCadence);
-            });
+        if (total.AverageSpeedMetersPerSecond is { } averageSpeed)
+        {
+            mesg.SetAvgSpeed((float)averageSpeed);
+            mesg.SetEnhancedAvgSpeed((float)averageSpeed);
+        }
+
+        if (total.MaximumSpeedMetersPerSecond is { } maximumSpeed)
+        {
+            mesg.SetMaxSpeed((float)maximumSpeed);
+            mesg.SetEnhancedMaxSpeed((float)maximumSpeed);
+        }
+
+        if (total.AverageHeartRate is { } averageHeartRate)
+            mesg.SetAvgHeartRate(averageHeartRate);
+        if (total.MaximumHeartRate is { } maximumHeartRate)
+            mesg.SetMaxHeartRate(maximumHeartRate);
+        if (total.AveragePower is { } averagePower)
+            mesg.SetAvgPower(averagePower);
+        if (total.MaximumPower is { } maximumPower)
+            mesg.SetMaxPower(maximumPower);
+        if (total.AverageCadence is { } averageCadence)
+            mesg.SetAvgCadence(averageCadence);
+        if (total.MaximumCadence is { } maximumCadence)
+            mesg.SetMaxCadence(maximumCadence);
+        if (total.ElevationGainMeters is { } gain)
+            mesg.SetTotalAscent(WholeMetres(gain));
+        if (total.ElevationLossMeters is { } loss)
+            mesg.SetTotalDescent(WholeMetres(loss));
 
         return mesg;
     }
@@ -329,61 +322,14 @@ public static class FitActivityWriter
     }
 
     /// <summary>
-    /// The averages a summary message carries, over the records from <paramref name="from"/> to
-    /// <paramref name="to"/> inclusive — a lap's own stretch, or the whole activity for the
-    /// session. Speed is distance over <paramref name="timer"/> — moving time, the same number
-    /// the message states as its <c>total_timer_time</c>, so the file cannot claim one duration
-    /// and an average derived from another. A lap averaged over the whole activity would describe
-    /// the run rather than the interval, which is worse than saying nothing.
-    /// The sensor averages are Story 1.7's to revisit (AD-16).
+    /// A climb or a descent in the whole metres <c>total_ascent</c> and <c>total_descent</c> are
+    /// stated in — a unit conversion, not a measurement: both were measured in the core (AD-16).
+    /// The field is sixteen bits whose top value means "no value", so an absurd number is pinned
+    /// just below it: wrapping round would state a small climb, and landing on the sentinel would
+    /// state none at all where the summary states an enormous one.
     /// </summary>
-    private static void ApplyAverages(
-        IReadOnlyList<RepairedRecord> records,
-        int from,
-        int to,
-        float timer,
-        float distance,
-        Action<float, byte?, byte?, ushort?, ushort?, byte?> apply)
-    {
-        // One pass over the records themselves: a lap's window is a slice of a series the caller
-        // already holds, so copying it out to filter it three times is work nobody asked for.
-        int heartRateSum = 0, heartRates = 0, maxHeartRate = 0;
-        int powerSum = 0, powers = 0, maxPower = 0;
-        int cadenceSum = 0, cadences = 0;
-
-        for (var index = from; index <= to; index++)
-        {
-            var record = records[index];
-
-            if (record.HeartRate is > 0 and { } heartRate)
-            {
-                heartRateSum += heartRate;
-                heartRates++;
-                maxHeartRate = Math.Max(maxHeartRate, heartRate);
-            }
-
-            if (record.Power is { } power)
-            {
-                powerSum += power;
-                powers++;
-                maxPower = Math.Max(maxPower, power);
-            }
-
-            if (record.Cadence is > 0 and { } cadence)
-            {
-                cadenceSum += cadence;
-                cadences++;
-            }
-        }
-
-        apply(
-            timer > 0 ? distance / timer : 0,
-            heartRates > 0 ? (byte)Math.Round((double)heartRateSum / heartRates) : null,
-            heartRates > 0 ? (byte)maxHeartRate : null,
-            powers > 0 ? (ushort)Math.Round((double)powerSum / powers) : null,
-            powers > 0 ? (ushort)maxPower : null,
-            cadences > 0 ? (byte)Math.Round((double)cadenceSum / cadences) : null);
-    }
+    private static ushort WholeMetres(double meters) =>
+        (ushort)Math.Clamp(Math.Round(meters), 0, ushort.MaxValue - 1);
 
     private static Sport MapSport(SportKind sport) => sport switch
     {

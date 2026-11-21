@@ -118,12 +118,19 @@ static void PrintReport(RepairResult result, string output)
     Console.WriteLine($"Загальний час:     {FormatDuration(report.ElapsedSeconds)}");
 
     // The written file states moving time, not elapsed time (FR-6), so the report says both —
-    // otherwise the pace on screen silently contradicts the file. The pace formula itself is
-    // Story 1.7's.
+    // otherwise the pace on screen silently contradicts the file.
     if (report.PausedSeconds > 0)
         Console.WriteLine($"Час у руху:        {FormatDuration(report.MovingSeconds)} (пауз: {FormatDuration(report.PausedSeconds)})");
 
+    // Both paces are the core's own numbers (AD-16): the shell formats them and computes nothing.
+    // Every line here reads the report, which is where the summary's values arrive — one number,
+    // one path to the screen.
     Console.WriteLine($"Темп:              {FormatPace(report.OriginalPaceSecondsPerKm)} → {FormatPace(report.RepairedPaceSecondsPerKm)}");
+
+    // A track without altitude states no climb, and saying nothing is better than printing a
+    // flat zero the athlete would read as a measurement.
+    if (report.ElevationGainMeters is { } gain)
+        Console.WriteLine($"Набір висоти:      {gain:F0} м");
     Console.WriteLine($"Надійна зона:      до {FormatDuration(report.MeasuredUntilSeconds)} ({report.MeasuredFraction.ToString("P0", culture)} активності), якорів: {report.AnchorCount}");
 
     if (report.GpsStallAtSeconds is { } stall)

@@ -481,22 +481,16 @@ public class PauseTests
     {
         // An event stream that says the athlete never moved, beside a full distance: a timer time
         // of zero there reads as an infinite pace, so the pauses are the thing not to be trusted.
-        // The repaired series is a sound one and only the pause list is nonsense, which is the
-        // one thing the writer has to survive.
+        // Struck out before the repair computes a single moving second (AD-7), so the whole
+        // pipeline survives such a file rather than only the writer: spread over a measure that
+        // never advances, the distance would leave every record at the start line.
         var run = SyntheticRun.Create();
-        var repaired = RepairService.Repair(run.Original, run.ReferenceTrack);
-        var result = new RepairResult
+        var nonsense = run.Original with
         {
-            Records = repaired.Records,
-            Report = repaired.Report,
-            Alignment = repaired.Alignment,
-            CleanedOriginal = repaired.CleanedOriginal with
-            {
-                Pauses = [new PauseInterval(run.Original.StartTime, run.Original.EndTime)]
-            },
-            Sport = repaired.Sport
+            Pauses = [new PauseInterval(run.Original.StartTime, run.Original.EndTime)]
         };
 
+        var result = RepairService.Repair(nonsense, run.ReferenceTrack);
         var timing = FitMessageInspector.InspectTiming(
             FitActivityWriter.WriteToArray(result, utcOffsetSeconds: 0));
 
@@ -504,6 +498,18 @@ public class PauseTests
         Assert.Equal(SyntheticRun.DurationSeconds, lap.TimerSeconds!.Value, 0.001);
         Assert.Equal(SyntheticRun.DurationSeconds, timing.Session.TimerSeconds!.Value, 0.001);
         Assert.Equal(SyntheticRun.DurationSeconds, timing.ActivityTimerSeconds!.Value, 0.001);
+
+        // And the report says the same, from the same activity: a moving time taken from the
+        // summary beside paused seconds taken from the list it disbelieved would have the two add
+        // up past the elapsed time, and the CLI would print a forty-minute pause inside a
+        // forty-minute run.
+        Assert.Equal(0, result.Report.PausedSeconds);
+        Assert.Equal(SyntheticRun.DurationSeconds, result.Report.MovingSeconds, 0.001);
+        Assert.Empty(result.CleanedOriginal.Pauses);
+
+        // The distance still reaches the end of the track, which is what a measure that never
+        // advanced would have made impossible (AD-8).
+        Assert.Equal(AlignmentOptionsTests.ExpectedRepairedDistance, result.Report.RepairedDistanceMeters, 0.01);
     }
 
     [Fact]

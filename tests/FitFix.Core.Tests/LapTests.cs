@@ -596,7 +596,11 @@ public class LapTests
         Assert.Equal(SyntheticRun.PauseSeconds, standing.ElapsedSeconds!.Value, 0.001);
         Assert.Equal(0, standing.TimerSeconds!.Value, 0.001);
         Assert.Equal(0, standing.DistanceMeters!.Value, 0.01);
-        Assert.Equal(0, standing.AvgSpeedMetersPerSecond!.Value, 0.001);
+
+        // Story 1.7 states no average speed at all here, where the writer used to state zero: a
+        // lap with no moving second has no average speed, and dividing its nothing by its nothing
+        // is a claim about an athlete who was standing at a light (AD-16).
+        Assert.Null(standing.AvgSpeedMetersPerSecond);
 
         // The one number that proves the average is the lap's own and not the activity's.
         Assert.True(
@@ -765,17 +769,21 @@ public class LapTests
                 Start.AddSeconds(lap * 2), Start.AddSeconds((lap * 2) + 2)))]
         };
 
+        IReadOnlyList<RepairedRecord> records = [.. Enumerable.Range(0, seconds + 1).Select(second => new RepairedRecord
+        {
+            Timestamp = Start.AddSeconds(second),
+            Latitude = SyntheticRun.StartLatitude,
+            Longitude = SyntheticRun.StartLongitude,
+            Distance = second,
+            Speed = 1
+        })];
+
         return new RepairResult
         {
-            Records = [.. Enumerable.Range(0, seconds + 1).Select(second => new RepairedRecord
-            {
-                Timestamp = Start.AddSeconds(second),
-                Latitude = SyntheticRun.StartLatitude,
-                Longitude = SyntheticRun.StartLongitude,
-                Distance = second,
-                Speed = 1
-            })],
+            Records = records,
             Report = reference.Report,
+            Summary = ActivitySummary.Of(
+                records, original, reference.Alignment, SyntheticRun.Options),
             Alignment = reference.Alignment,
             CleanedOriginal = original,
             Sport = SportKind.Running

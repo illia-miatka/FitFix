@@ -203,6 +203,31 @@ public sealed class SyntheticRun
         };
     }
 
+    /// <summary>
+    /// The same run with the heart rate of every paused record dropped to
+    /// <see cref="RestingHeartRate"/> — what a watch records while the athlete waits at a light,
+    /// and what tells an average over the moving records from an average over all of them. The
+    /// unmodified paused run cannot: its heart rate cycles through the same ten values inside the
+    /// pause as outside it, so both means round to the very same byte and a test on them would
+    /// pass whichever records the average was taken over.
+    /// </summary>
+    public SyntheticRun WithRestingHeartRateWhilePaused()
+    {
+        var records = Original.Records.Select(record => Original.IsPaused(record.Timestamp)
+            ? record with { HeartRate = RestingHeartRate }
+            : record);
+
+        return new SyntheticRun
+        {
+            TrackPoints = TrackPoints,
+            TrueRouteLength = TrueRouteLength,
+            Original = Original with { Records = [.. records] }
+        };
+    }
+
+    /// <summary>The heart rate <see cref="WithRestingHeartRateWhilePaused"/> writes, bpm.</summary>
+    public const byte RestingHeartRate = 110;
+
     /// <summary>Heart rate in the first lap of <see cref="WithSensorsPerLap"/>, and the step per lap.</summary>
     public const int HeartRatePerLap = 140;
 
