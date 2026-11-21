@@ -114,3 +114,11 @@ Append-only: add entries, never rewrite existing ones.
 - source_spec: `spec-1-7-one-owner-summaries.md`
   summary: The written file now carries `total_descent` and `max_cadence`, which no story asked for.
   evidence: They follow from AD-16's "one owner computes every summary" and from this spec's own field list, and both are free in the same pass as the values the story needed. Worth a glance from Ілля: three fields new to the file in two stories (`max_speed`, `total_ascent`, then these) change what Strava displays, and only the first two were reviewed as part of a story's intent.
+
+- source_spec: `spec-2-1-problem-details.md`
+  summary: CLAUDE.md still says the API project does not exist.
+  evidence: It reads "ASP.NET Core Minimal API (ще не створено)" and lists the projects as Core, Cli and Core.Tests with "Далі — `src/FitFix.Api`". Both are wrong now that `src/FitFix.Api` and `tests/FitFix.Api.Tests` are in the solution, and that file is the first thing the next session reads. Deferred only because this workflow keeps agent-context files out of a story's diff; it belongs in the next docs commit together with the spine's AD-7 and AD-19 updates.
+
+- source_spec: `spec-2-1-problem-details.md`
+  summary: A 413 written before the body is drained may never reach the client.
+  evidence: The refusal is written as soon as a declared `Content-Length` exceeds the limit, so a client still uploading can hit a write error and never read the response body. Draining the body first, or closing the connection deliberately, is the usual remedy; both cost something and the right choice depends on how the browser behaves against the real endpoint, which Story 2.3 is where that can be measured.

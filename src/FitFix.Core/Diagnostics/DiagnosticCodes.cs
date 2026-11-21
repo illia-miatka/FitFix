@@ -119,12 +119,44 @@ public static class DiagnosticCodes
     public const string DistanceSeriesImplausible = "DISTANCE_SERIES_IMPLAUSIBLE";
 
     // --- Errors raised by the shell, declared here so AD-22 reads its codes from one source.
+    //
+    // These describe the transport, not the user's data: the request never reached a point
+    // where an activity or a track was read, so nothing about the files is being claimed. Their
+    // severity is not a download gate either — there is no repaired file to withhold — and
+    // `Blocking` is only the registry's zero value doing no harm. Story 2.7 still owes each one
+    // a Ukrainian text, because the interface shows whatever code it is handed (AD-18).
 
     /// <summary>The upload exceeded the shell's size limit (HTTP 413).</summary>
     public const string FileTooLarge = "FILE_TOO_LARGE";
 
     /// <summary>An unexpected failure the shell could not attribute to the input (HTTP 500).</summary>
     public const string InternalError = "INTERNAL_ERROR";
+
+    /// <summary>
+    /// The request reached no endpoint (HTTP 404). Declared here because every error body
+    /// carries a code from this registry (AD-22): a bare 404 with an empty body would leave
+    /// the interface nothing to look up.
+    /// </summary>
+    public const string RouteNotFound = "ROUTE_NOT_FOUND";
+
+    /// <summary>
+    /// The request could not be parsed, or stopped before the body it announced had arrived
+    /// (HTTP 400) — an aborted upload, most often. A failure of the request, not of the
+    /// service, so it must not be reported as one.
+    /// </summary>
+    public const string RequestMalformed = "REQUEST_MALFORMED";
+
+    /// <summary>The path exists but not for this HTTP method (HTTP 405).</summary>
+    public const string MethodNotAllowed = "METHOD_NOT_ALLOWED";
+
+    /// <summary>The endpoint cannot read a body in the media type offered (HTTP 415).</summary>
+    public const string MediaTypeNotSupported = "MEDIA_TYPE_NOT_SUPPORTED";
+
+    /// <summary>
+    /// The client went away before the answer was written. Nothing can be sent any more, so
+    /// this code exists for the log line rather than for a response body.
+    /// </summary>
+    public const string ClientDisconnected = "CLIENT_DISCONNECTED";
 
     private static readonly Dictionary<string, DiagnosticSeverity> Severities = new(StringComparer.Ordinal)
     {
@@ -154,8 +186,14 @@ public static class DiagnosticCodes
         [SummaryWithoutRecords] = DiagnosticSeverity.Blocking,
         [SummaryWithoutLaps] = DiagnosticSeverity.Blocking,
         [DistanceSeriesImplausible] = DiagnosticSeverity.Blocking,
+        // Transport codes. Blocking says nothing here: no repaired file exists to gate.
         [FileTooLarge] = DiagnosticSeverity.Blocking,
-        [InternalError] = DiagnosticSeverity.Blocking
+        [InternalError] = DiagnosticSeverity.Blocking,
+        [RouteNotFound] = DiagnosticSeverity.Blocking,
+        [RequestMalformed] = DiagnosticSeverity.Blocking,
+        [MethodNotAllowed] = DiagnosticSeverity.Blocking,
+        [MediaTypeNotSupported] = DiagnosticSeverity.Blocking,
+        [ClientDisconnected] = DiagnosticSeverity.Blocking
     };
 
     /// <summary>Every declared code. The UI dictionary's key set must equal this set (AD-18).</summary>

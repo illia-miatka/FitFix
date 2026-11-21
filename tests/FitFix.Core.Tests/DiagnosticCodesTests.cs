@@ -92,6 +92,9 @@ public class DiagnosticCodesTests
     {
         Assert.True(DiagnosticCodes.IsDeclared(DiagnosticCodes.FileTooLarge));
         Assert.True(DiagnosticCodes.IsDeclared(DiagnosticCodes.InternalError));
+
+        // A request that reached no endpoint is a failure the client reads too (Story 2.1).
+        Assert.True(DiagnosticCodes.IsDeclared(DiagnosticCodes.RouteNotFound));
     }
 
     [Fact]
