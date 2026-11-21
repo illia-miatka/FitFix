@@ -95,7 +95,9 @@ public class RepairServiceTests
     public void Repair_of_a_two_hour_activity_of_leading_garbage_takes_less_than_three_seconds()
     {
         // SM-3 against the cleaner's worst input: every position of a two-hour activity a
-        // teleport until the last five minutes, so the vote re-runs for each of them.
+        // teleport until the last five minutes, so the vote runs for each of them. The budget is
+        // the product requirement and stays, but the margin is what keeps it honest on a shared
+        // runner — the work is linear now, and the growth rate itself is pinned below.
         var run = SyntheticRun.Create();
         var activity = LeadingGarbage(garbageRecords: 7_200, thenRunningSeconds: 300);
 
@@ -105,6 +107,45 @@ public class RepairServiceTests
 
         Assert.Equal(7_200, result.Report.DiscardedPositionCount);
         Assert.True(stopwatch.Elapsed.TotalSeconds < 3, $"Обробка зайняла {stopwatch.Elapsed.TotalSeconds:F2} с");
+    }
+
+    [Fact]
+    public void Cleaning_leading_garbage_costs_no_worse_than_linearly_in_its_length()
+    {
+        // A wall-clock budget on shared hardware measures the runner, so the guarantee is pinned
+        // as a growth rate, which the runner's speed cancels out of: ten times the garbage must
+        // not cost anything like a hundred times the work. The vote used to rescan the whole run
+        // from every candidate, and that is exactly what a quadratic ratio would mean again.
+        GpsCleaner.Clean(LeadingGarbage(200, 10), SyntheticRun.Options);
+
+        var small = FastestCleaning(LeadingGarbage(5_000, 10));
+        var tenTimesLarger = FastestCleaning(LeadingGarbage(50_000, 10));
+
+        Assert.True(small > TimeSpan.Zero, "the smaller run was too quick to measure at all");
+        Assert.True(
+            tenTimesLarger < small * 25,
+            $"ten times the garbage cost {tenTimesLarger / small:F0} times the work "
+                + $"({small.TotalMilliseconds:F1} ms → {tenTimesLarger.TotalMilliseconds:F1} ms)");
+    }
+
+    /// <summary>
+    /// The quickest of three cleanings. The fastest run is the one least disturbed by whatever
+    /// else the machine was doing, which is what makes a ratio of two sizes worth asserting on.
+    /// </summary>
+    private static TimeSpan FastestCleaning(OriginalActivity activity)
+    {
+        var best = TimeSpan.MaxValue;
+
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            GpsCleaner.Clean(activity, SyntheticRun.Options);
+            stopwatch.Stop();
+            if (stopwatch.Elapsed < best)
+                best = stopwatch.Elapsed;
+        }
+
+        return best;
     }
 
     [Fact]

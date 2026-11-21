@@ -102,3 +102,7 @@ Append-only: add entries, never rewrite existing ones.
 - source_spec: `spec-1-6-laps-survive.md`
   summary: A lap boundary between records is measured at the nearest record, which under smart recording can misattribute tens of metres.
   evidence: The lap's span is written as the athlete's exact instant while its distance is read at the nearest repaired record. At 1 Hz the error is sub-second; with smart recording (a point every 4–10 s) one lap can gain or lose tens of metres against its neighbour, and the written `avg_speed` disagrees slightly with `distance / elapsed`. Interpolating the distance at the exact boundary instant would remove it, at the cost of a lap boundary that no record sits on.
+
+- source_spec: `spec-1-4-discard-garbage-points.md`
+  summary: The leading vote is still quadratic when a garbage run jitters beyond a few metres.
+  evidence: The step-over that made an identical-repeat run linear (2 000 / 7 200 / 20 000 records: 0.017 / 0.213 / 1.631 s before, 0.002 / 0.002 / 0.005 s after) cannot apply when a run's own spatial extent approaches `StallRadiusMeters`, because its distant members genuinely do vote and the verdict depends on them. The same sizes with 5 m of jitter per axis still cost 0.011 / 0.156 / 1.234 s. A bounding box instead of a scalar reach would buy jitter up to about 4 m and nothing beyond. At the two-hour SM-3 size the jittering case is 0.156 s locally, so the budget holds today; it is the twelve-hour all-garbage file that would not.
