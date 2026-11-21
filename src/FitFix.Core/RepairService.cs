@@ -34,22 +34,31 @@ public static class RepairService
                 DiagnosticCodes.ActivityWithoutElapsedTime,
                 $"The activity's records span no time at all ('{nameof(original)}').");
 
-        // Cleaning comes first, so the compatibility check (FR-3), the anchor search and every
+        // A pause list that leaves the activity no moving second cannot be true, and it is struck
+        // out here — before a single moving second is computed — so the interpolation, the
+        // smoothing, the summary and the report all read one answer (AD-7). Without it the
+        // distance would be spread over a measure that never advances, and the whole track would
+        // fall due at the finish.
+        var believable = original.WithoutImpossiblePauses();
+
+        // Cleaning comes next, so the compatibility check (FR-3), the anchor search and every
         // series a shell will show read the same cleaned original (AD-25). It is done here and
         // nowhere else, which is how every entry point inherits it.
-        var (cleaned, discardedPositions) = GpsCleaner.Clean(original, options);
+        var (cleaned, discardedPositions) = GpsCleaner.Clean(believable, options);
 
         // The alignment works from the cleaned series; the stall detector inside it reads the
         // original as it arrived, because blanking a burst would otherwise look like a stall.
-        var alignment = Aligner.Align(cleaned, original, track, options);
+        var alignment = Aligner.Align(cleaned, believable, track, options);
 
         var records = cleaned.Records;
         var times = new double[records.Count];
         var movingTimes = new double[records.Count];
+        var paused = new bool[records.Count];
         for (var i = 0; i < records.Count; i++)
         {
             times[i] = cleaned.SecondsFromStart(records[i]);
             movingTimes[i] = cleaned.MovingSecondsFromStart(times[i]);
+            paused[i] = cleaned.IsPaused(records[i].Timestamp);
         }
 
         // Distance is spread over moving time, never over the clock: inside a pause the measure
@@ -63,7 +72,9 @@ public static class RepairService
         Smooth(distances, times, PauseBlocks(cleaned), alignment.MeasuredUntilSeconds, options);
         EnforceMonotonicity(distances, times, track.Length, options);
 
-        var speeds = ComputeSpeeds(distances, times, options);
+        // Speed is a distance over the time the athlete was moving for, never over the clock, and
+        // a record a pause covers states no speed at all (FR-5, AD-7).
+        var speeds = ComputeSpeeds(distances, movingTimes, paused, options);
         var altitudeOffset = ComputeAltitudeOffset(cleaned, track);
 
         var repaired = new List<RepairedRecord>(records.Count);
@@ -87,22 +98,40 @@ public static class RepairService
             });
         }
 
+        // Every summary number is settled here, once, for the activity and for each of its laps
+        // (AD-16). The report below and the FIT writer both read these values; neither computes
+        // one of its own, which is what keeps the file and the preview from stating two different
+        // average heart rates for the same run.
+        var summary = ActivitySummary.Of(repaired, cleaned, alignment, options);
+        var total = summary.Total;
+
         var report = new RepairReport
         {
             // The device's own distance field, which cleaning never touches: the "before" number
             // has to stay what the user saw in Strava.
             OriginalDistanceMeters = original.RecordedDistance ?? 0,
-            RepairedDistanceMeters = distances[^1],
+            RepairedDistanceMeters = total.DistanceMeters,
             TrackLengthMeters = track.Length,
-            ElapsedSeconds = original.ElapsedSeconds,
+            // The span of the series the file was written from, so the report cannot state one
+            // elapsed time while the session message states another.
+            ElapsedSeconds = total.ElapsedSeconds,
+            // Both from the same activity, the one whose pauses the whole pipeline believed:
+            // taking the moving seconds from the summary and the paused ones from a list it
+            // disbelieved would have the two add up past the elapsed time.
             PausedSeconds = cleaned.PausedSeconds,
+            MovingSeconds = total.MovingSeconds,
             MeasuredUntilSeconds = alignment.MeasuredUntilSeconds,
+            MeasuredFraction = summary.MeasuredFraction,
+            OriginalPaceSecondsPerKm = summary.OriginalPaceSecondsPerKilometer,
+            RepairedPaceSecondsPerKm = total.PaceSecondsPerKilometer,
             AnchorCount = alignment.Anchors.Count,
             GpsStallAtSeconds = alignment.GpsStallAtSeconds,
             DiscardedPositionCount = discardedPositions,
             // The laps the writer will transcribe, counted here so the report and the file agree
             // on how many there are (AD-24).
-            LapCount = cleaned.LapPartition().Count,
+            LapCount = summary.Laps.Count,
+            ElevationGainMeters = total.ElevationGainMeters,
+            ElevationLossMeters = total.ElevationLossMeters,
             Warnings = WarningsOf(alignment, discardedPositions)
         };
 
@@ -110,11 +139,13 @@ public static class RepairService
         {
             Records = repaired,
             Report = report,
+            Summary = summary,
             Alignment = alignment,
             CleanedOriginal = cleaned,
             Sport = original.Sport
         };
     }
+
 
     /// <summary>
     /// The codes the report carries: the alignment's own, preceded by <c>POSITIONS_DISCARDED</c>
@@ -246,8 +277,11 @@ public static class RepairService
         var interval = last > 0 ? times[last] - times[last - 1] : 0;
         var plausible = options.MaxSpeedMetersPerSecond * interval + options.SpeedToleranceMeters;
 
+        // Derived from the activity and the track the user offered, so it carries a declared code
+        // rather than a bare exception a shell could only report as an internal error (AD-18).
         if (shortfall > plausible)
-            throw new InvalidOperationException(
+            throw new MalformedArgumentException(
+                DiagnosticCodes.DistanceSeriesImplausible,
                 $"The repaired series ends {shortfall:F1} m short of the track, and the last " +
                 $"{interval:F0} s cannot cover more than {plausible:F1} m: the distance series is wrong, " +
                 "not the finish.");
@@ -255,14 +289,35 @@ public static class RepairService
         distances[last] = trackLength;
     }
 
-    private static double[] ComputeSpeeds(double[] distances, double[] times, AlignmentOptions options)
+    /// <summary>
+    /// The repaired speed of each record, over a window of
+    /// <see cref="AlignmentOptions.SpeedWindowHalfWidthRecords"/> records either side.
+    /// <paramref name="movingTimes"/> is moving seconds rather than the clock, so a window that
+    /// reaches across a pause divides its metres by the seconds the athlete was actually moving
+    /// and the records beside a pause keep the athlete's own pace (FR-5, AD-7).
+    /// <para>
+    /// A record a pause covers states a speed of zero, whatever its window spans. The window of a
+    /// record just inside a pause still reaches the moving records outside it, and its moving
+    /// seconds collapse to the one or two the window has left there — a full window of metres over
+    /// a fraction of the time, which reads as the athlete sprinting while standing at a light.
+    /// Zero is the only honest number for a second nothing moved in.
+    /// </para>
+    /// </summary>
+    private static double[] ComputeSpeeds(
+        double[] distances,
+        double[] movingTimes,
+        bool[] paused,
+        AlignmentOptions options)
     {
         var speeds = new double[distances.Length];
         for (var i = 0; i < distances.Length; i++)
         {
+            if (paused[i])
+                continue;
+
             var from = Math.Max(0, i - options.SpeedWindowHalfWidthRecords);
             var to = Math.Min(distances.Length - 1, i + options.SpeedWindowHalfWidthRecords);
-            var dt = times[to] - times[from];
+            var dt = movingTimes[to] - movingTimes[from];
             speeds[i] = dt > 0 ? Math.Max(0, (distances[to] - distances[from]) / dt) : 0;
         }
 

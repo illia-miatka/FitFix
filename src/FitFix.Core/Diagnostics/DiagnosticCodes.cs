@@ -92,6 +92,32 @@ public static class DiagnosticCodes
     /// </summary>
     public const string ActivityTooManyLaps = "ACTIVITY_TOO_MANY_LAPS";
 
+    /// <summary>
+    /// The repaired series handed to the summary, or to the writer beside a summary, is not the
+    /// one the activity was measured from: a different number of records, or a boundary index
+    /// past its end. Every summary number is read at a record index (AD-16), so one mismatched
+    /// pair would quote one lap's heart rate against another's records.
+    /// </summary>
+    public const string SummarySeriesMismatch = "SUMMARY_SERIES_MISMATCH";
+
+    /// <summary>The series to summarise holds no record at all, so there is nothing to measure.</summary>
+    public const string SummaryWithoutRecords = "SUMMARY_WITHOUT_RECORDS";
+
+    /// <summary>
+    /// The summary carries no lap, so the file would hold no <c>lap</c> message and claim
+    /// <c>num_laps = 0</c> — a shape Strava may refuse (AD-19). An activity nobody lapped is one
+    /// lap covering everything, never none.
+    /// </summary>
+    public const string SummaryWithoutLaps = "SUMMARY_WITHOUT_LAPS";
+
+    /// <summary>
+    /// The interpolated distance series ends further short of the track than the activity's last
+    /// interval could plausibly cover, so pinning the finish to the track length (AD-8) would
+    /// write a teleport across the line. A fault in the data the repair was given, which is why
+    /// it carries a code rather than a bare exception (AD-18).
+    /// </summary>
+    public const string DistanceSeriesImplausible = "DISTANCE_SERIES_IMPLAUSIBLE";
+
     // --- Errors raised by the shell, declared here so AD-22 reads its codes from one source.
 
     /// <summary>The upload exceeded the shell's size limit (HTTP 413).</summary>
@@ -124,6 +150,10 @@ public static class DiagnosticCodes
         [ActivityTooFewRecords] = DiagnosticSeverity.Blocking,
         [ActivityWithoutElapsedTime] = DiagnosticSeverity.Blocking,
         [ActivityTooManyLaps] = DiagnosticSeverity.Blocking,
+        [SummarySeriesMismatch] = DiagnosticSeverity.Blocking,
+        [SummaryWithoutRecords] = DiagnosticSeverity.Blocking,
+        [SummaryWithoutLaps] = DiagnosticSeverity.Blocking,
+        [DistanceSeriesImplausible] = DiagnosticSeverity.Blocking,
         [FileTooLarge] = DiagnosticSeverity.Blocking,
         [InternalError] = DiagnosticSeverity.Blocking
     };

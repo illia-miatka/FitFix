@@ -223,6 +223,9 @@ public class DiagnosticCodesTests
         {
             Records = [result.Records[0]],
             Report = result.Report,
+            // The summary of the whole run: the writer must refuse the single record before it
+            // reads a number off anything.
+            Summary = result.Summary,
             Alignment = result.Alignment,
             CleanedOriginal = result.CleanedOriginal,
             Sport = result.Sport

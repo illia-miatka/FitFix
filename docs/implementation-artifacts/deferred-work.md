@@ -106,3 +106,11 @@ Append-only: add entries, never rewrite existing ones.
 - source_spec: `spec-1-4-discard-garbage-points.md`
   summary: The leading vote is still quadratic when a garbage run jitters beyond a few metres.
   evidence: The step-over that made an identical-repeat run linear (2 000 / 7 200 / 20 000 records: 0.017 / 0.213 / 1.631 s before, 0.002 / 0.002 / 0.005 s after) cannot apply when a run's own spatial extent approaches `StallRadiusMeters`, because its distant members genuinely do vote and the verdict depends on them. The same sizes with 5 m of jitter per axis still cost 0.011 / 0.156 / 1.234 s. A bounding box instead of a scalar reach would buy jitter up to about 4 m and nothing beyond. At the two-hour SM-3 size the jittering case is 0.156 s locally, so the budget holds today; it is the twelve-hour all-garbage file that would not.
+
+- source_spec: `spec-1-7-one-owner-summaries.md`
+  summary: An activity whose every second exceeds its sport cap states no maximum speed at all.
+  evidence: The maximum skips records above `AlignmentOptions.MaxSpeedMetersPerSecond`, which is what keeps the forced finish (measured at 7.8 m/s on a 3 m/s run) out of it. If every record is above the cap — a ride recorded under the wrong sport, or a descent judged by the running profile — the summary states no maximum rather than a wrong one. That is the honest answer, but the user is told nothing; once the API carries warnings, a code saying the sport profile does not fit the data would be better than silence.
+
+- source_spec: `spec-1-7-one-owner-summaries.md`
+  summary: The written file now carries `total_descent` and `max_cadence`, which no story asked for.
+  evidence: They follow from AD-16's "one owner computes every summary" and from this spec's own field list, and both are free in the same pass as the values the story needed. Worth a glance from Ілля: three fields new to the file in two stories (`max_speed`, `total_ascent`, then these) change what Strava displays, and only the first two were reviewed as part of a story's intent.

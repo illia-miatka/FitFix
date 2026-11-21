@@ -23,18 +23,30 @@ public static class FitMessageInspector
 
     /// <summary>
     /// What one summary message states: its durations, its distance, the span it claims, its
-    /// <c>message_index</c>, its averages and the positions it was opened and closed at. Null
-    /// means the field is absent. Durations and average speed are read together because they have
-    /// to agree: an average speed derived from a duration the message does not state is the
-    /// contradiction worth failing on. The sensor averages and the positions are read because a
-    /// lap that quoted the whole activity's would be indistinguishable from a correct one without
-    /// them.
+    /// <c>message_index</c>, its averages, its climb and the positions it was opened and closed
+    /// at. Null means the field is absent. Durations and average speed are read together because
+    /// they have to agree: an average speed derived from a duration the message does not state is
+    /// the contradiction worth failing on. The sensor averages and the positions are read because
+    /// a lap that quoted the whole activity's would be indistinguishable from a correct one
+    /// without them.
     /// </summary>
+    /// <remarks>
+    /// Every value here goes through a <c>Measured…</c> reader. A FIT encoder writes one field
+    /// definition for all the <c>lap</c> messages of a file, so a field one lap states and another
+    /// does not is written as that field's invalid sentinel rather than left out of the message.
+    /// Read raw, a lap that states no average heart rate at all would come back claiming 255 bpm,
+    /// and a test asserting the field is absent would be asserting nothing. Each field is
+    /// therefore compared against the sentinel of <em>its own</em> FIT base type: 255 for a
+    /// <c>uint8</c> heart rate, 65535 for a <c>uint16</c> power, 4294967295 for a <c>uint32</c>
+    /// distance or duration — a shared threshold would read a real 18-hour ride or a 70 km route
+    /// as an absent field.
+    /// </remarks>
     public sealed record Summary
     {
         public float? ElapsedSeconds { get; init; }
         public float? TimerSeconds { get; init; }
         public float? AvgSpeedMetersPerSecond { get; init; }
+        public float? MaxSpeedMetersPerSecond { get; init; }
         public float? DistanceMeters { get; init; }
         public System.DateTime? Start { get; init; }
         public System.DateTime? End { get; init; }
@@ -44,6 +56,9 @@ public static class FitMessageInspector
         public ushort? AvgPower { get; init; }
         public ushort? MaxPower { get; init; }
         public byte? AvgCadence { get; init; }
+        public byte? MaxCadence { get; init; }
+        public ushort? ElevationGainMeters { get; init; }
+        public ushort? ElevationLossMeters { get; init; }
         public GeoPoint? StartPosition { get; init; }
         public GeoPoint? EndPosition { get; init; }
         public LapTrigger? Trigger { get; init; }
@@ -76,18 +91,24 @@ public static class FitMessageInspector
                 var mesg = (LapMesg)e.mesg;
                 laps.Add(new Summary
                 {
-                    ElapsedSeconds = mesg.GetTotalElapsedTime(),
-                    TimerSeconds = mesg.GetTotalTimerTime(),
-                    AvgSpeedMetersPerSecond = mesg.GetEnhancedAvgSpeed() ?? mesg.GetAvgSpeed(),
-                    DistanceMeters = mesg.GetTotalDistance(),
+                    ElapsedSeconds = MeasuredAsUInt32(mesg.GetTotalElapsedTime()),
+                    TimerSeconds = MeasuredAsUInt32(mesg.GetTotalTimerTime()),
+                    AvgSpeedMetersPerSecond = MeasuredAsUInt32(mesg.GetEnhancedAvgSpeed())
+                        ?? MeasuredAsUInt16(mesg.GetAvgSpeed()),
+                    MaxSpeedMetersPerSecond = MeasuredAsUInt32(mesg.GetEnhancedMaxSpeed())
+                        ?? MeasuredAsUInt16(mesg.GetMaxSpeed()),
+                    DistanceMeters = MeasuredAsUInt32(mesg.GetTotalDistance()),
                     Start = Utc(mesg.GetStartTime()),
                     End = Utc(mesg.GetTimestamp()),
                     MessageIndex = mesg.GetMessageIndex(),
-                    AvgHeartRate = mesg.GetAvgHeartRate(),
-                    MaxHeartRate = mesg.GetMaxHeartRate(),
-                    AvgPower = mesg.GetAvgPower(),
-                    MaxPower = mesg.GetMaxPower(),
-                    AvgCadence = mesg.GetAvgCadence(),
+                    AvgHeartRate = Measured(mesg.GetAvgHeartRate()),
+                    MaxHeartRate = Measured(mesg.GetMaxHeartRate()),
+                    AvgPower = Measured(mesg.GetAvgPower()),
+                    MaxPower = Measured(mesg.GetMaxPower()),
+                    AvgCadence = Measured(mesg.GetAvgCadence()),
+                    MaxCadence = Measured(mesg.GetMaxCadence()),
+                    ElevationGainMeters = Measured(mesg.GetTotalAscent()),
+                    ElevationLossMeters = Measured(mesg.GetTotalDescent()),
                     StartPosition = Position(mesg.GetStartPositionLat(), mesg.GetStartPositionLong()),
                     EndPosition = Position(mesg.GetEndPositionLat(), mesg.GetEndPositionLong()),
                     Trigger = mesg.GetLapTrigger()
@@ -98,18 +119,24 @@ public static class FitMessageInspector
                 var mesg = (SessionMesg)e.mesg;
                 session = new Summary
                 {
-                    ElapsedSeconds = mesg.GetTotalElapsedTime(),
-                    TimerSeconds = mesg.GetTotalTimerTime(),
-                    AvgSpeedMetersPerSecond = mesg.GetEnhancedAvgSpeed() ?? mesg.GetAvgSpeed(),
-                    DistanceMeters = mesg.GetTotalDistance(),
+                    ElapsedSeconds = MeasuredAsUInt32(mesg.GetTotalElapsedTime()),
+                    TimerSeconds = MeasuredAsUInt32(mesg.GetTotalTimerTime()),
+                    AvgSpeedMetersPerSecond = MeasuredAsUInt32(mesg.GetEnhancedAvgSpeed())
+                        ?? MeasuredAsUInt16(mesg.GetAvgSpeed()),
+                    MaxSpeedMetersPerSecond = MeasuredAsUInt32(mesg.GetEnhancedMaxSpeed())
+                        ?? MeasuredAsUInt16(mesg.GetMaxSpeed()),
+                    DistanceMeters = MeasuredAsUInt32(mesg.GetTotalDistance()),
                     Start = Utc(mesg.GetStartTime()),
                     End = Utc(mesg.GetTimestamp()),
                     MessageIndex = mesg.GetMessageIndex(),
-                    AvgHeartRate = mesg.GetAvgHeartRate(),
-                    MaxHeartRate = mesg.GetMaxHeartRate(),
-                    AvgPower = mesg.GetAvgPower(),
-                    MaxPower = mesg.GetMaxPower(),
-                    AvgCadence = mesg.GetAvgCadence(),
+                    AvgHeartRate = Measured(mesg.GetAvgHeartRate()),
+                    MaxHeartRate = Measured(mesg.GetMaxHeartRate()),
+                    AvgPower = Measured(mesg.GetAvgPower()),
+                    MaxPower = Measured(mesg.GetMaxPower()),
+                    AvgCadence = Measured(mesg.GetAvgCadence()),
+                    MaxCadence = Measured(mesg.GetMaxCadence()),
+                    ElevationGainMeters = Measured(mesg.GetTotalAscent()),
+                    ElevationLossMeters = Measured(mesg.GetTotalDescent()),
                     StartPosition = Position(mesg.GetStartPositionLat(), mesg.GetStartPositionLong())
                 };
                 numLaps = mesg.GetNumLaps();
@@ -174,6 +201,35 @@ public static class FitMessageInspector
         MesgNum.Activity => "activity",
         _ => $"#{num}"
     };
+
+    /// <summary>
+    /// The value of a <c>uint8</c> field a message actually stated, and null for one it left to
+    /// the encoder's invalid sentinel — see the remarks on <see cref="Summary"/>. A heart rate or
+    /// a cadence of 255 is that sentinel, and no athlete produces one.
+    /// </summary>
+    private static byte? Measured(byte? value) => value is null or byte.MaxValue ? null : value;
+
+    /// <summary>
+    /// The same for a <c>uint16</c> field — a power, a climb or a descent of 65535.
+    /// </summary>
+    private static ushort? Measured(ushort? value) => value is null or ushort.MaxValue ? null : value;
+
+    /// <summary>
+    /// The same for a scaled <c>uint16</c> field the SDK hands back as a <c>float</c>: an unset
+    /// <c>avg_speed</c> or <c>max_speed</c> comes back as its raw 65535, which is 65 km/s and
+    /// therefore no speed.
+    /// </summary>
+    private static float? MeasuredAsUInt16(float? value) =>
+        value is null || value == ushort.MaxValue ? null : value;
+
+    /// <summary>
+    /// The same for a scaled <c>uint32</c> field: an unset duration, distance or enhanced speed
+    /// comes back as its raw 4294967295. The sentinel is that field's own, not a shared ceiling —
+    /// 65535 would be a real total for an 18-hour ride or a 70 km route, and reading those as
+    /// absent would fail the equality between the summary and the file it was written to.
+    /// </summary>
+    private static float? MeasuredAsUInt32(float? value) =>
+        value is null || value >= uint.MaxValue ? null : value;
 
     private static GeoPoint? Position(int? latitude, int? longitude) =>
         latitude is { } lat && longitude is { } lon
