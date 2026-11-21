@@ -59,6 +59,10 @@ public static class GpsCleaner
         var reference = -1;
         var discardsSinceReference = 0;
 
+        // What the votes so far have already proved about one stretch of positions, so that a
+        // long run of garbage is walked once rather than once per candidate (SM-3).
+        var samePlace = SamePlaceRun.None;
+
         for (var index = 0; index < records.Count; index++)
         {
             var record = records[index];
@@ -76,7 +80,7 @@ public static class GpsCleaner
             {
                 // Either no reference has been seated yet, or the standing one has just refused a
                 // position it is in no position to judge. The positions that follow decide.
-                keep = Vouches(records, index, options)
+                keep = Vouches(records, index, options, ref samePlace)
                     ?? (reference < 0 && discardsSinceReference <= options.LeadingAgreementPositions);
             }
             else
@@ -152,29 +156,87 @@ public static class GpsCleaner
     private static bool? Vouches(
         IReadOnlyList<ActivityRecord> records,
         int candidate,
-        AlignmentOptions options)
+        AlignmentOptions options,
+        ref SamePlaceRun samePlace)
     {
         var from = records[candidate];
-        var voters = 0;
+        var position = from.Position!.Value;
 
-        for (var index = candidate + 1;
+        // The stretch an earlier candidate already walked can be stepped over whole when the
+        // triangle inequality proves it is one place for this candidate too, which is what keeps
+        // a run of garbage linear instead of quadratic (SM-3). It cannot change a verdict: every
+        // position stepped over is one the loop below would have passed by as the same place.
+        var start = candidate + 1;
+        var through = candidate;
+        var reach = 0.0;
+
+        if (samePlace.Through > candidate)
+        {
+            var apart = Geo.Distance(records[samePlace.Anchor].Position!.Value, position);
+            if (apart + samePlace.Reach <= options.StallRadiusMeters)
+            {
+                start = samePlace.Through + 1;
+                through = samePlace.Through;
+                reach = apart + samePlace.Reach;
+            }
+        }
+
+        var voters = 0;
+        var verdict = (bool?)null;
+        var samePlaceStillRunning = true;
+
+        for (var index = start;
              index < records.Count && voters < options.LeadingAgreementPositions;
              index++)
         {
             var voter = records[index];
             if (voter.Position is null)
                 continue;
-            if (Geo.Distance(from.Position!.Value, voter.Position.Value) <= options.StallRadiusMeters)
+
+            var away = Geo.Distance(position, voter.Position.Value);
+            if (away <= options.StallRadiusMeters)
+            {
+                // Still the same place, so it casts no vote — and while nothing else has come
+                // between, it extends the stretch a later candidate may step over.
+                if (samePlaceStillRunning)
+                {
+                    through = index;
+                    reach = Math.Max(reach, away);
+                }
+
                 continue;
+            }
+
+            // Anything somewhere else ends that stretch, whether or not it goes on to vote.
+            samePlaceStillRunning = false;
             if ((voter.Timestamp - from.Timestamp).TotalSeconds <= 0)
                 continue;
 
             voters++;
             if (Reaches(from, voter, stale: false, options))
-                return true;
+            {
+                verdict = true;
+                break;
+            }
         }
 
-        return voters > 0 ? false : null;
+        if (through > candidate)
+            samePlace = new SamePlaceRun(candidate, through, reach);
+
+        return verdict ?? (voters > 0 ? false : null);
+    }
+
+    /// <summary>
+    /// What a vote has already proved about one stretch of the series: every positioned record in
+    /// <c>(Anchor, Through]</c> lies within <see cref="Reach"/> of the position at
+    /// <see cref="Anchor"/>. A later candidate no further than
+    /// <c>StallRadiusMeters - Reach</c> from that anchor can therefore step over the whole stretch
+    /// without measuring it again: by the triangle inequality every one of those positions is
+    /// within the radius of the later candidate too.
+    /// </summary>
+    private readonly record struct SamePlaceRun(int Anchor, int Through, double Reach)
+    {
+        public static SamePlaceRun None => new(-1, -1, 0);
     }
 
     private static bool Reaches(ActivityRecord from, ActivityRecord to, bool stale, AlignmentOptions options) =>
