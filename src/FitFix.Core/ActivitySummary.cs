@@ -138,8 +138,10 @@ public sealed record ActivitySummary
 
     /// <summary>
     /// The share of the activity whose position was measured by anchors rather than interpolated
-    /// between them (FR-4). Settled here, with the elapsed time it is a share of, so a shell never
-    /// divides one of the two by something else.
+    /// between them (FR-4): the measured <see cref="Alignment.Zones"/> summed over the elapsed
+    /// time. A sum and not a prefix — an activity whose GPS returned for its last kilometre has
+    /// that kilometre among the measured ones. Settled here, with the elapsed time it is a share
+    /// of, so a shell never divides one of the two by something else.
     /// </summary>
     public required double MeasuredFraction { get; init; }
 
@@ -246,12 +248,29 @@ public sealed record ActivitySummary
             Total = total,
             Laps = laps,
             MeasuredFraction = total.ElapsedSeconds > 0
-                ? alignment.MeasuredUntilSeconds / total.ElapsedSeconds
+                ? MeasuredSeconds(alignment.Zones) / total.ElapsedSeconds
                 : 0,
             OriginalPaceSecondsPerKilometer = Pace(
                 original.RecordedDistance ?? 0,
                 activity.MovingSecondsFromStart(activity.ElapsedSeconds))
         };
+    }
+
+    /// <summary>
+    /// How many seconds of the activity the position was measured over: the measured zones added
+    /// up. Every one of them, because the trust the athlete is shown is the sum of the stretches
+    /// that were measured and not the first of them (FR-8).
+    /// </summary>
+    private static double MeasuredSeconds(IReadOnlyList<TrustZone> zones)
+    {
+        var measured = 0.0;
+        foreach (var zone in zones)
+        {
+            if (zone.Kind == ZoneKind.Measured)
+                measured += zone.ToSeconds - zone.FromSeconds;
+        }
+
+        return measured;
     }
 
     /// <summary>

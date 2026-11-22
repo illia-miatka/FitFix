@@ -51,8 +51,8 @@ public class GpsCleanerTests
             withSpike.Report.RepairedDistanceMeters,
             0.01);
         Assert.Equal(
-            withoutSpike.Report.MeasuredUntilSeconds,
-            withSpike.Report.MeasuredUntilSeconds,
+            withoutSpike.Alignment.MeasuredUntilSeconds,
+            withSpike.Alignment.MeasuredUntilSeconds,
             0.001);
         Assert.Equal(withoutSpike.Report.AnchorCount - 1, withSpike.Report.AnchorCount);
     }
@@ -150,8 +150,8 @@ public class GpsCleanerTests
         Assert.Equal(burst, result.Report.DiscardedPositionCount);
         Assert.DoesNotContain(DiagnosticCodes.TrackFarFromOriginal, result.Report.Warnings);
         Assert.Equal(
-            withoutBurst.Report.MeasuredUntilSeconds,
-            result.Report.MeasuredUntilSeconds,
+            withoutBurst.Alignment.MeasuredUntilSeconds,
+            result.Alignment.MeasuredUntilSeconds,
             0.001);
         // The discarded positions were anchors of their own in the clean run, so the count may
         // fall by at most the burst — and by nothing else.

@@ -3,12 +3,58 @@ namespace FitFix.Core;
 /// <summary>Якір: час від початку Оригіналу ↔ дистанція вздовж Еталонного треку.</summary>
 public readonly record struct Anchor(double TimeSeconds, double TrackDistance, double DeviationMeters);
 
-/// <summary>Результат Вирівнювання: Якорі, межа Надійної зони і попередження.</summary>
+/// <summary>What the repair knew about the position over one stretch of the activity (FR-4).</summary>
+public enum ZoneKind
+{
+    /// <summary>
+    /// The Original's own GPS established the position: anchors close enough together in time that
+    /// the stretch between them is the track the athlete was measured on — the Надійна зона.
+    /// </summary>
+    Measured,
+
+    /// <summary>
+    /// The position was interpolated across a gap no anchor spoke for — the Розрахована зона. The
+    /// distance there is the repair's estimate, not a measurement.
+    /// </summary>
+    Estimated
+}
+
+/// <summary>
+/// One stretch of the activity, in seconds from its start, and what the repair knew about the
+/// position across it. Half-open in effect: a record on <see cref="ToSeconds"/> belongs to this
+/// zone rather than to the next, so the two kinds can share a boundary without either claiming the
+/// second twice.
+/// </summary>
+/// <param name="Kind">Measured or estimated.</param>
+/// <param name="FromSeconds">When the stretch begins, s from the activity's start.</param>
+/// <param name="ToSeconds">When it ends, s from the activity's start.</param>
+public readonly record struct TrustZone(ZoneKind Kind, double FromSeconds, double ToSeconds);
+
+/// <summary>Результат Вирівнювання: Якорі, Зони довіри і попередження.</summary>
 public sealed class Alignment
 {
     public required IReadOnlyList<Anchor> Anchors { get; init; }
 
-    /// <summary>Час останнього Якоря — далі позиція розрахована (Розрахована зона).</summary>
+    /// <summary>
+    /// Which stretches of the activity the position was measured over and which were interpolated,
+    /// in time order, tiling the alignment's own span exactly once — no gap, no overlap, and no two
+    /// adjacent zones of the same kind (FR-4, FR-8). Derived from <see cref="Anchors"/>: a stretch
+    /// between two of them is measured while they are closer together in time than
+    /// <see cref="AlignmentOptions.EstimatedZoneGapSeconds"/>, and estimated when the position had
+    /// to be carried across a longer gap.
+    /// <para>
+    /// A list rather than a single boundary, because real GPS drops out, returns and drops again: a
+    /// "measured until" would call the kilometre whose signal came back estimated, and the athlete
+    /// looking at the preview could not tell which stretches to trust.
+    /// </para>
+    /// </summary>
+    public required IReadOnlyList<TrustZone> Zones { get; init; }
+
+    /// <summary>
+    /// Час останнього Якоря — the last second any anchor spoke for. Not the boundary of trust,
+    /// which <see cref="Zones"/> owns: it is what the finish is pinned against (AD-17) and how much
+    /// of the activity the plausible distance still has to cover.
+    /// </summary>
     public required double MeasuredUntilSeconds { get; init; }
 
     /// <summary>

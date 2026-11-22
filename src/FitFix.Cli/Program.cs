@@ -165,9 +165,14 @@ static void PrintReport(RepairResult result, string output)
     // flat zero the athlete would read as a measurement.
     if (report.ElevationGainMeters is { } gain)
         Console.WriteLine($"Набір висоти:      {Meters(gain)} м");
+    // How much was measured and in how many stretches, never "up to X": the GPS drops out and
+    // comes back, so a single boundary would disown the kilometre whose signal returned (FR-8).
+    // The share is the core's own number; counting the measured zones is reading a list, not
+    // arithmetic over the activity (AD-16).
+    var measuredZones = report.Zones.Count(zone => zone.Kind == ZoneKind.Measured);
     Console.WriteLine(
-        $"Надійна зона:      до {FormatDuration(report.MeasuredUntilSeconds)} "
-            + $"({Share(report.MeasuredFraction)} активності), якорів: {report.AnchorCount}");
+        $"Надійна зона:      {Share(report.MeasuredFraction)} активності "
+            + $"(ділянок: {measuredZones}), якорів: {report.AnchorCount}");
 
     if (report.GpsStallAtSeconds is { } stall)
         Console.WriteLine($"GPS завис на:      {FormatDuration(stall)}");

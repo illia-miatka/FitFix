@@ -426,6 +426,83 @@ public sealed class SyntheticRun
         };
     }
 
+    /// <summary>How long each dropout of <see cref="CreateWithGpsReturning"/> lasts, s.</summary>
+    public const int GpsDropoutSeconds = 45;
+
+    /// <summary>
+    /// When the first and the second dropout of <see cref="CreateWithGpsReturning"/> begin, s from
+    /// the start. Far enough apart that three measured stretches separate them, and short enough
+    /// that the athlete covers less ground inside one than
+    /// <see cref="AlignmentOptions.SearchWindowForward"/> segments of the track reach — otherwise
+    /// the greedy anchor chain could not pick the route back up and the "recovery" would be a
+    /// dropout that never ends.
+    /// </summary>
+    public const int FirstGpsDropoutSeconds = 400;
+
+    /// <inheritdoc cref="FirstGpsDropoutSeconds"/>
+    public const int SecondGpsDropoutSeconds = 1000;
+
+    /// <summary>
+    /// Whether <see cref="CreateWithGpsReturning"/> wrote no position for this second. The ends of
+    /// a dropout are fixes: that is where the anchors on either side of the gap are measured, and
+    /// the gap between them is <see cref="GpsDropoutSeconds"/> exactly.
+    /// </summary>
+    public static bool WithoutAFixAt(int second) =>
+        (second > FirstGpsDropoutSeconds && second < FirstGpsDropoutSeconds + GpsDropoutSeconds)
+        || (second > SecondGpsDropoutSeconds && second < SecondGpsDropoutSeconds + GpsDropoutSeconds);
+
+    /// <summary>
+    /// The same route and athlete as <see cref="Create(bool, bool)"/>, with the GPS dropping out
+    /// twice and coming back both times: the watch writes records throughout — the sensors, the
+    /// clock and its own distance are unbroken — but no position at all inside the two windows
+    /// <see cref="WithoutAFixAt"/> describes. The real failure mode, and the one a single
+    /// "measured until" cannot describe: the signal returns, and the kilometres after the first
+    /// dropout were measured as honestly as the ones before it (FR-8).
+    /// </summary>
+    /// <remarks>
+    /// Nothing freezes here, so <see cref="GpsStallDetector"/> finds no stall: the positions either
+    /// side of a dropout are 135 m apart. A stall would discard every anchor after it and the
+    /// fixture would have one measured stretch rather than three.
+    /// </remarks>
+    public static SyntheticRun CreateWithGpsReturning()
+    {
+        var course = BuildCourse();
+        var length = course.Length;
+
+        var noise = Noise();
+        var records = new List<ActivityRecord>(DurationSeconds + 1);
+
+        for (var second = 0; second <= DurationSeconds; second++)
+        {
+            var travelled = Math.Min(second * SpeedMetersPerSecond, length);
+            // Drawn every second, dropout or not, so the jitter is the same sequence as the other
+            // fixtures' and a position here is the position the honest run reported.
+            var measured = Measured(course, travelled, noise);
+            var withoutAFix = WithoutAFixAt(second);
+
+            records.Add(new ActivityRecord
+            {
+                Timestamp = StartTime.AddSeconds(second),
+                Latitude = withoutAFix ? null : measured.Latitude,
+                Longitude = withoutAFix ? null : measured.Longitude,
+                Altitude = OriginalStartAltitude + Hill(travelled, length),
+                Distance = travelled,
+                Speed = SpeedMetersPerSecond,
+                HeartRate = (byte)(150 + second % 10),
+                Power = 200,
+                Cadence = 85,
+                Temperature = 4
+            });
+        }
+
+        return new SyntheticRun
+        {
+            TrackPoints = course.TrackPoints,
+            TrueRouteLength = length,
+            Original = new OriginalActivity { Records = records, Sport = SportKind.Running }
+        };
+    }
+
     /// <summary>The cyclist's speed of <see cref="CreateRide"/>, m/s — 54 km/h.</summary>
     public const double RideSpeedMetersPerSecond = 15;
 
