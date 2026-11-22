@@ -19,7 +19,9 @@ public class RepairServiceTests
         var track = run.ReferenceTrack;
         var result = RepairService.Repair(run.Original, track);
 
-        // FR-6: total_distance = довжина Еталонного треку (±0,5 %).
+        // FR-6: total_distance = довжина Еталонного треку (±0,5 %). The whole of it: this
+        // fixture's own time makes the whole track plausible, so nothing is trimmed (AD-17).
+        Assert.Equal(track.Length, result.Report.UsedTrackLengthMeters, 0.001);
         Assert.Equal(track.Length, result.Report.RepairedDistanceMeters, track.Length * 0.005);
     }
 
@@ -204,11 +206,16 @@ public class RepairServiceTests
 
         Assert.Contains(DiagnosticCodes.NoOriginalGps, result.Report.Warnings);
         Assert.Equal(0, result.Report.MeasuredUntilSeconds);
-        Assert.Equal(result.Report.TrackLengthMeters, result.Report.RepairedDistanceMeters, 1.0);
+        // The length the repair chose, which is what the series ends on (AD-17) — equal to the
+        // whole track here, since this fixture's time makes the whole of it plausible.
+        Assert.Equal(result.Report.UsedTrackLengthMeters, result.Report.RepairedDistanceMeters, 1.0);
 
         // Дистанція розподілена рівномірно в часі.
         var middle = result.Records[result.Records.Count / 2];
-        Assert.Equal(result.Report.TrackLengthMeters / 2, middle.Distance, result.Report.TrackLengthMeters * 0.02);
+        Assert.Equal(
+            result.Report.UsedTrackLengthMeters / 2,
+            middle.Distance,
+            result.Report.UsedTrackLengthMeters * 0.02);
     }
 
     [Fact]

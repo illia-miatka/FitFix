@@ -52,7 +52,39 @@ public static class SyntheticFitBuilder
 
     /// <summary>The activity with exactly the timer events stated, in the order given.</summary>
     public static byte[] WriteActivity(OriginalActivity activity, IReadOnlyList<TimerEvent> timerEvents) =>
-        WriteActivity(activity, timerEvents, LapsOf(activity));
+        WriteActivity(activity, timerEvents, LapsOf(activity), []);
+
+    /// <summary>
+    /// One <c>device_info</c> message: what the sensor speaks and which profile it reports, the
+    /// two fields together, because the FIT subfield that names the profile is resolved by the
+    /// <c>source_type</c> beside it (AD-17). Stated as raw values rather than as a FitFix notion
+    /// of a sensor, so a fixture can write what a watch writes — including the combinations the
+    /// reader must <em>not</em> read as a speed source.
+    /// </summary>
+    public readonly record struct DeclaredDevice(SourceType Source, byte DeviceType);
+
+    /// <summary>
+    /// An ANT+ sensor of the given profile, as a watch pairs one — the profile numbers are the
+    /// constants of <see cref="AntplusDeviceType"/>.
+    /// </summary>
+    public static DeclaredDevice Antplus(byte profile) => new(SourceType.Antplus, profile);
+
+    /// <summary>
+    /// The same over Bluetooth low energy, whose profile numbers are different ones — the
+    /// constants of <see cref="BleDeviceType"/>.
+    /// </summary>
+    public static DeclaredDevice Ble(byte profile) => new(SourceType.BluetoothLowEnergy, profile);
+
+    /// <summary>
+    /// The activity with a <c>device_info</c> message per declared device, written where a watch
+    /// writes them — right after <c>file_id</c>, before the records. Every fixture that states
+    /// none is written exactly as it was before <c>device_info</c> was read at all, so no number
+    /// pinned on one of them can move.
+    /// </summary>
+    public static byte[] WriteActivityWithDevices(
+        OriginalActivity activity,
+        IReadOnlyList<DeclaredDevice> devices) =>
+        WriteActivity(activity, TimerEventsFor(activity), LapsOf(activity), devices);
 
     private static IReadOnlyList<RawLap> LapsOf(OriginalActivity activity) =>
         [.. activity.Laps.Select(lap => new RawLap(lap.Start, lap.End))];
@@ -60,7 +92,14 @@ public static class SyntheticFitBuilder
     private static byte[] WriteActivity(
         OriginalActivity activity,
         IReadOnlyList<TimerEvent> timerEvents,
-        IReadOnlyList<RawLap> laps)
+        IReadOnlyList<RawLap> laps) =>
+        WriteActivity(activity, timerEvents, laps, []);
+
+    private static byte[] WriteActivity(
+        OriginalActivity activity,
+        IReadOnlyList<TimerEvent> timerEvents,
+        IReadOnlyList<RawLap> laps,
+        IReadOnlyList<DeclaredDevice> devices)
     {
         using var buffer = new MemoryStream();
         var encoder = new Encode(ProtocolVersion.V20);
@@ -73,6 +112,29 @@ public static class SyntheticFitBuilder
         fileId.SetSerialNumber(1234u);
         fileId.SetTimeCreated(new FitDateTime(activity.StartTime));
         encoder.Write(fileId);
+
+        // The paired sensors, as a watch declares them at the top of the file. device_index 0 is
+        // the watch itself, so the sensors start at 1.
+        for (var index = 0; index < devices.Count; index++)
+        {
+            var device = devices[index];
+            var mesg = new DeviceInfoMesg();
+            mesg.SetTimestamp(new FitDateTime(activity.StartTime));
+            mesg.SetDeviceIndex((byte)(index + 1));
+            mesg.SetSourceType(device.Source);
+
+            // The SDK resolves device_type's subfield from source_type, so the profile has to be
+            // set through the accessor that matches what the sensor speaks — exactly the
+            // resolution the reader relies on (AD-17).
+            if (device.Source == SourceType.Antplus)
+                mesg.SetAntplusDeviceType(device.DeviceType);
+            else if (device.Source == SourceType.BluetoothLowEnergy)
+                mesg.SetBleDeviceType(device.DeviceType);
+            else
+                mesg.SetDeviceType(device.DeviceType);
+
+            encoder.Write(mesg);
+        }
 
         // Records and events in one timestamp-ordered stream, as a watch writes them. Events come
         // first on a tie, so the start of the activity precedes its first record.

@@ -23,6 +23,9 @@ static int Run(string[] args)
 
     var positional = new List<string>();
     string? output = null;
+    // The conservative length until the user says otherwise (AD-17): the flag is how they say it,
+    // and its absence can only produce the shorter of the two lengths.
+    var trackLengthMode = TrackLengthMode.Plausible;
 
     for (var i = 1; i < args.Length; i++)
     {
@@ -34,6 +37,10 @@ static int Run(string[] args)
                 return 1;
             }
             output = args[++i];
+        }
+        else if (args[i] is "--trust-track")
+        {
+            trackLengthMode = TrackLengthMode.Full;
         }
         else
         {
@@ -60,13 +67,17 @@ static int Run(string[] args)
 
         // The composition root is the only place read → align → repair is assembled (AD-10),
         // so the CLI and the future API cannot disagree on the same two files.
-        var result = RepairPipeline.RepairFiles(originalPath, trackPath);
+        var result = RepairPipeline.RepairFiles(originalPath, trackPath, trackLengthMode);
 
         // Story 1.10 takes the offset from the original activity; until then local time is UTC.
         const int utcOffsetSeconds = 0;
         FitActivityWriter.WriteFile(output, result, utcOffsetSeconds);
         PrintReport(result, output);
-        return 0;
+
+        // AD-22 withholds the result until the user confirms a blocking warning. A command-line
+        // tool has nobody to ask and the file is already on disk, so the exit code is the gate it
+        // can offer: a script cannot otherwise tell a trimmed, unconfirmed repair from a clean one.
+        return result.Report.Warnings.Any(DiagnosticCodes.IsBlocking) ? 3 : 0;
     }
     // Every core refusal carries a code (AD-18). Human text for the codes is Story 1.11;
     // until then the code itself is the honest output.
@@ -87,8 +98,12 @@ static int Run(string[] args)
         Console.Error.WriteLine($"Немає доступу до файлу або теки: {exception.Message}");
         return 2;
     }
-    // A path the file APIs reject outright — an empty argument, for one.
-    catch (ArgumentException exception)
+    // A path the file APIs reject outright — an empty argument, for one. An
+    // ArgumentOutOfRangeException is excluded even though it derives from this: the core raises it
+    // for a threshold or a chosen length that cannot be, which is a defect in this program rather
+    // than a problem with the athlete's file path, and reporting it as one would hide a bug behind
+    // advice the user cannot act on. It is left to crash with its stack trace.
+    catch (ArgumentException exception) when (exception is not ArgumentOutOfRangeException)
     {
         Console.Error.WriteLine($"Хибний шлях до файлу: {exception.Message}");
         return 2;
@@ -101,24 +116,39 @@ static void PrintUsage()
         FitFix — виправляє активності з битим GPS.
 
         Використання:
-          fitfix repair ОРИГІНАЛ.fit ТРЕК.(fit|gpx|tcx) [-o РЕЗУЛЬТАТ.fit]
+          fitfix repair ОРИГІНАЛ.fit ТРЕК.(fit|gpx|tcx) [-o РЕЗУЛЬТАТ.fit] [--trust-track]
 
         ОРИГІНАЛ — FIT із годинника: джерело часу й сенсорів.
         ТРЕК     — правильна геометрія маршруту (час у ньому ігнорується).
+
+        --trust-track — узяти повну довжину треку, навіть якщо вона більша за
+                        правдоподібний рух за час Оригіналу. Без цього прапорця
+                        задовгий трек обрізається до правдоподібної довжини.
+
+        Коди виходу: 0 — готово; 1 — хибна команда; 2 — файл не підходить;
+                     3 — файл записано, але є попередження, яке треба підтвердити.
         """);
 }
 
 static void PrintReport(RepairResult result, string output)
 {
     var report = result.Report;
-    var culture = CultureInfo.InvariantCulture;
 
     Console.WriteLine($"Вид спорту:        {result.Sport}");
+    // Every figure below is formatted by a helper that fixes the culture: a report that mixed
+    // `30 %` with `32,50 км` would be stating two separators for one set of numbers.
+    //
     // A watch that recorded no distance states none; printing a flat zero before the arrow would
     // read as a measurement of standing still.
     Console.WriteLine(report.OriginalDistanceMeters is { } recorded
-        ? $"Дистанція:         {recorded / 1000:F2} км → {report.RepairedDistanceMeters / 1000:F2} км"
-        : $"Дистанція:         {report.RepairedDistanceMeters / 1000:F2} км (пристрій дистанції не записав)");
+        ? $"Дистанція:         {Km(recorded)} км → {Km(report.RepairedDistanceMeters)} км"
+        : $"Дистанція:         {Km(report.RepairedDistanceMeters)} км (пристрій дистанції не записав)");
+    // Both lengths AD-17 demands, so the athlete sees what the repair ended on and what it chose
+    // that from. Said as one number when they are the same: restating an identity would read as a
+    // decision somebody made.
+    Console.WriteLine(TrackWasTrimmed(report)
+        ? $"Довжина треку:     {Km(report.TrackLengthMeters)} км (використано {Km(report.UsedTrackLengthMeters)} км)"
+        : $"Довжина треку:     {Km(report.TrackLengthMeters)} км");
     Console.WriteLine($"Загальний час:     {FormatDuration(report.ElapsedSeconds)}");
 
     // The written file states moving time, not elapsed time (FR-6), so the report says both —
@@ -134,8 +164,10 @@ static void PrintReport(RepairResult result, string output)
     // A track without altitude states no climb, and saying nothing is better than printing a
     // flat zero the athlete would read as a measurement.
     if (report.ElevationGainMeters is { } gain)
-        Console.WriteLine($"Набір висоти:      {gain:F0} м");
-    Console.WriteLine($"Надійна зона:      до {FormatDuration(report.MeasuredUntilSeconds)} ({report.MeasuredFraction.ToString("P0", culture)} активності), якорів: {report.AnchorCount}");
+        Console.WriteLine($"Набір висоти:      {Meters(gain)} м");
+    Console.WriteLine(
+        $"Надійна зона:      до {FormatDuration(report.MeasuredUntilSeconds)} "
+            + $"({Share(report.MeasuredFraction)} активності), якорів: {report.AnchorCount}");
 
     if (report.GpsStallAtSeconds is { } stall)
         Console.WriteLine($"GPS завис на:      {FormatDuration(stall)}");
@@ -155,7 +187,59 @@ static void PrintReport(RepairResult result, string output)
         Console.WriteLine($"Попередження:      {string.Join(", ", report.Warnings)}");
 
     Console.WriteLine($"Записано:          {output}");
+
+    // A blocking warning must not be left to its code in the line above: these are the ones the
+    // user has to answer before the file means anything, and AD-22 withholds the result until they
+    // do. Said last, so they are the final thing on the screen, and said for every blocking code
+    // rather than for the one this story added — a buried TRACK_FAR_FROM_ORIGINAL is the same
+    // mistake.
+    foreach (var code in report.Warnings.Where(DiagnosticCodes.IsBlocking))
+    {
+        Console.WriteLine();
+        Console.WriteLine($"УВАГА [{code}]: {BlockingWarningText(code, report)}");
+    }
 }
+
+/// <summary>
+/// What a blocking warning means to the athlete and what they can do about it. Human text per code
+/// is Story 1.11; until then the codes a repair can actually raise say what they have to say here,
+/// and any other blocking code still announces itself by its code rather than hiding in the list.
+/// </summary>
+static string BlockingWarningText(string code, RepairReport report) => code switch
+{
+    DiagnosticCodes.TrackLongerThanActivity =>
+        $"трек ({Km(report.TrackLengthMeters)} км) довший за правдоподібний рух за час Оригіналу."
+            + Environment.NewLine
+            + (TrackWasTrimmed(report)
+                ? $"Узято {Km(report.UsedTrackLengthMeters)} км. Якщо трек правильний, а GPS був "
+                    + "поганий із самого початку, повторіть команду з --trust-track."
+                : $"За вашим --trust-track узято повну довжину — {Km(report.UsedTrackLengthMeters)} км."),
+    DiagnosticCodes.TrackFarFromOriginal =>
+        "трек починається далеко від першої GPS-точки Оригіналу — можливо, це маршрут іншої активності.",
+    _ => "перевірте результат перед тим, як вантажити його у Strava."
+};
+
+/// <summary>
+/// Whether the repair ended on less than the whole track (AD-17). Half a metre of slack, because
+/// the two lengths are the same `double` when nothing was trimmed and a formatted comparison
+/// would call a rounding difference a decision.
+/// </summary>
+static bool TrackWasTrimmed(RepairReport report) =>
+    report.TrackLengthMeters - report.UsedTrackLengthMeters > 0.5;
+
+/// <summary>
+/// The report's figures, every one of them in the invariant culture: kilometres to two places,
+/// metres whole, and a share as a percentage. The athlete's own locale would put a comma in one
+/// figure and a point in the next, because the percentage carries its own format while the rest
+/// are plain interpolations — one report, one decimal separator.
+/// </summary>
+static string Km(double meters) => (meters / 1000).ToString("F2", CultureInfo.InvariantCulture);
+
+/// <inheritdoc cref="Km"/>
+static string Meters(double meters) => meters.ToString("F0", CultureInfo.InvariantCulture);
+
+/// <inheritdoc cref="Km"/>
+static string Share(double fraction) => fraction.ToString("P0", CultureInfo.InvariantCulture);
 
 static string FormatDuration(double seconds) =>
     TimeSpan.FromSeconds(seconds).ToString(seconds >= 3600 ? @"h\:mm\:ss" : @"m\:ss");

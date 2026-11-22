@@ -296,11 +296,10 @@ public class PauseTests
         Assert.Equal(before, after, 100 * SyntheticRun.SpeedMetersPerSecond * 0.05);
 
         // And no second may gain a whole missing stretch. The ceiling is the athlete's own cap
-        // (AD-10) plus the metres the track holds beyond what this fixture's moving time covers:
-        // the finish is pinned to the track length (AD-8), so the last seconds carry that
-        // surplus, and an over-long track is Story 1.8's to deal with. Anything more is a
-        // stretch that was interpolated short and paid for at the line.
-        var surplus = result.Report.TrackLengthMeters
+        // (AD-10) plus the metres the chosen length holds beyond what this fixture's moving time
+        // covers: the finish is pinned to that length (AD-8, AD-17), so the last seconds carry the
+        // surplus. Anything more is a stretch that was interpolated short and paid for at the line.
+        var surplus = result.Report.UsedTrackLengthMeters
             - SyntheticRun.DurationSeconds * SyntheticRun.SpeedMetersPerSecond;
         var biggest = 0.0;
         var at = 0;

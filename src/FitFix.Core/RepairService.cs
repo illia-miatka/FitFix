@@ -9,23 +9,64 @@ namespace FitFix.Core;
 public static class RepairService
 {
     /// <summary>
-    /// Repairs the activity with the thresholds that suit its own sport. The overload exists so
-    /// that a caller with nothing to say about the thresholds says so in the signature, instead
-    /// of omitting an optional argument and silently getting different numbers (AD-10).
+    /// Repairs the activity with the thresholds that suit its own sport, ending on the
+    /// conservative length (AD-17). The overload exists so that a caller with nothing to say about
+    /// the thresholds says so in the signature, instead of omitting an optional argument and
+    /// silently getting different numbers (AD-10).
     /// </summary>
     public static RepairResult Repair(OriginalActivity original, ReferenceTrack track)
     {
         ArgumentNullException.ThrowIfNull(original);
 
-        return Repair(original, track, AlignmentOptions.ForSport(original.Sport));
+        return Repair(original, track, AlignmentOptions.ForSport(original.Sport), TrackLengthMode.Plausible);
     }
 
-    /// <summary>Repairs the activity with the given thresholds, the only tuning source (AD-10).</summary>
-    public static RepairResult Repair(OriginalActivity original, ReferenceTrack track, AlignmentOptions options)
+    /// <summary>
+    /// Repairs with the thresholds of the activity's own sport and the stated track-length mode —
+    /// the overload a shell calls once the user has confirmed that an over-long track is right
+    /// (AD-17). An explicit overload rather than an argument the previous one may omit: an omitted
+    /// argument must not be able to change the distance (AD-10).
+    /// </summary>
+    public static RepairResult Repair(
+        OriginalActivity original,
+        ReferenceTrack track,
+        TrackLengthMode trackLengthMode)
+    {
+        ArgumentNullException.ThrowIfNull(original);
+
+        return Repair(original, track, AlignmentOptions.ForSport(original.Sport), trackLengthMode);
+    }
+
+    /// <summary>
+    /// Repairs the activity with the given thresholds, the only tuning source (AD-10), ending on
+    /// the conservative length (AD-17).
+    /// </summary>
+    public static RepairResult Repair(OriginalActivity original, ReferenceTrack track, AlignmentOptions options) =>
+        Repair(original, track, options, TrackLengthMode.Plausible);
+
+    /// <summary>
+    /// Repairs the activity with the given thresholds and the given track-length mode — the one
+    /// implementation every overload above arrives at, so no two entry points can disagree about
+    /// the same files (AD-10).
+    /// </summary>
+    public static RepairResult Repair(
+        OriginalActivity original,
+        ReferenceTrack track,
+        AlignmentOptions options,
+        TrackLengthMode trackLengthMode)
     {
         ArgumentNullException.ThrowIfNull(original);
         ArgumentNullException.ThrowIfNull(track);
         ArgumentNullException.ThrowIfNull(options);
+
+        // The three thresholds the chosen length is computed from, checked where they are read.
+        // AD-10 puts every threshold in the caller's hands, and these are the ones whose nonsense
+        // values reach an invariant rather than merely a different number: a cap of nothing bounds
+        // the activity at its anchors alone, which for an original without GPS is a chosen length
+        // of zero and every record left on the start line. A caller's defect, so no declared code.
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(options.MaxSpeedMetersPerSecond);
+        ArgumentOutOfRangeException.ThrowIfNegative(options.TrackLengthToleranceMeters);
+        ArgumentOutOfRangeException.ThrowIfNegative(options.TrackLengthToleranceFraction);
 
         // No elapsed time means no time axis to spread the track over: the interpolation would
         // be left with a single anchor. User data, so it refuses with a code (AD-18).
@@ -46,9 +87,14 @@ public static class RepairService
         // nowhere else, which is how every entry point inherits it.
         var (cleaned, discardedPositions) = GpsCleaner.Clean(believable, options);
 
-        // The alignment works from the cleaned series; the stall detector inside it reads the
-        // original as it arrived, because blanking a burst would otherwise look like a stall.
-        var alignment = Aligner.Align(cleaned, believable, track, options);
+        // The anchors first, then the length they bound, then the finish pinned to it (AD-17). The
+        // measured distance is an input to the choice, so the alignment cannot be built in one
+        // call: a length chosen without the anchors either ignores what the GPS proved or has to
+        // guess at it. The stall detector reads the original as it arrived, because blanking a
+        // burst would otherwise look like a stall.
+        var measured = Aligner.Measure(cleaned, believable, track, options);
+        var length = ChooseTrackLength(believable, track, measured, options, trackLengthMode);
+        var alignment = Aligner.EndingAt(measured, cleaned.ElapsedSeconds, length.Used, options);
 
         var records = cleaned.Records;
         var times = new double[records.Count];
@@ -70,7 +116,7 @@ public static class RepairService
 
         var distances = InterpolateDistances(movingTimes, anchorMovingTimes, alignment.Anchors);
         Smooth(distances, times, PauseBlocks(cleaned), alignment.MeasuredUntilSeconds, options);
-        EnforceMonotonicity(distances, times, track.Length, options);
+        EnforceMonotonicity(distances, times, length.Used, options);
 
         // Speed is a distance over the time the athlete was moving for, never over the clock, and
         // a record a pause covers states no speed at all (FR-5, AD-7).
@@ -112,7 +158,10 @@ public static class RepairService
             // no distance at all.
             OriginalDistanceMeters = original.RecordedDistance,
             RepairedDistanceMeters = total.DistanceMeters,
+            // Both lengths, in both modes: the user cannot choose between two numbers they are
+            // never shown (AD-17).
             TrackLengthMeters = track.Length,
+            UsedTrackLengthMeters = length.Used,
             // The span of the series the file was written from, so the report cannot state one
             // elapsed time while the session message states another.
             ElapsedSeconds = total.ElapsedSeconds,
@@ -133,7 +182,7 @@ public static class RepairService
             LapCount = summary.Laps.Count,
             ElevationGainMeters = total.ElevationGainMeters,
             ElevationLossMeters = total.ElevationLossMeters,
-            Warnings = WarningsOf(alignment, discardedPositions)
+            Warnings = WarningsOf(alignment, discardedPositions, length.TrackIsLonger)
         };
 
         return new RepairResult
@@ -150,14 +199,127 @@ public static class RepairService
 
     /// <summary>
     /// The codes the report carries: the alignment's own, preceded by <c>POSITIONS_DISCARDED</c>
-    /// when cleaning threw anything away (AD-18). Cleaning runs before the alignment, so its code
-    /// comes first, and a shell can say why the map lost a point instead of leaving
+    /// when cleaning threw anything away and by <c>TRACK_LONGER_THAN_ACTIVITY</c> when the track
+    /// outruns the Original's own time (AD-18). Both of those are settled before the alignment, so
+    /// both come first, and a shell can say why the map lost a point instead of leaving
     /// <c>NO_ORIGINAL_GPS</c> as the only hint after a full discard.
+    /// <para>
+    /// The over-long-track code is reported in <em>both</em> modes: trusting the track changes the
+    /// result but does not make the track plausible, and a report that dropped the code would leave
+    /// a shell unable to say which of the two lengths the file in front of the user ended on
+    /// (AD-17).
+    /// </para>
     /// </summary>
-    private static IReadOnlyList<string> WarningsOf(Alignment alignment, int discardedPositions) =>
-        discardedPositions > 0
-            ? [DiagnosticCodes.PositionsDiscarded, .. alignment.Warnings]
-            : alignment.Warnings;
+    private static IReadOnlyList<string> WarningsOf(
+        Alignment alignment,
+        int discardedPositions,
+        bool trackIsLonger)
+    {
+        if (discardedPositions == 0 && !trackIsLonger)
+            return alignment.Warnings;
+
+        var warnings = new List<string>(alignment.Warnings.Count + 2);
+        if (discardedPositions > 0)
+            warnings.Add(DiagnosticCodes.PositionsDiscarded);
+        if (trackIsLonger)
+            warnings.Add(DiagnosticCodes.TrackLongerThanActivity);
+        warnings.AddRange(alignment.Warnings);
+        return warnings;
+    }
+
+    /// <summary>
+    /// The two lengths of AD-17 and the one the repair will use. <see cref="ChosenTrackLength.Used"/>
+    /// is the whole track unless it outruns the plausible distance by more than the tolerance —
+    /// and even then only while nobody has confirmed the track with
+    /// <see cref="TrackLengthMode.Full"/>. It is never below the distance the anchors established:
+    /// a shorter one would have the series reach its finish inside the measured zone and then hold
+    /// the athlete still for the rest of the activity, which is worse than the inflated pace this
+    /// whole decision exists to avoid.
+    /// </summary>
+    private static ChosenTrackLength ChooseTrackLength(
+        OriginalActivity original,
+        ReferenceTrack track,
+        Alignment measured,
+        AlignmentOptions options,
+        TrackLengthMode mode)
+    {
+        // The anchors project onto the track, so this cannot exceed its length; clamped anyway,
+        // because it becomes a floor below and no floor may lift the finish past the track's end.
+        var anchored = Math.Clamp(measured.MeasuredDistanceMeters, 0, track.Length);
+        var plausible = PlausibleDistance(original, measured, anchored, options);
+
+        // A floor plus a share of the plausible distance (AD-10): the disagreement between a
+        // sensor and a drawn route grows with the route, and a flat number of metres would warn
+        // about every long ride.
+        var tolerance = Math.Max(
+            options.TrackLengthToleranceMeters,
+            options.TrackLengthToleranceFraction * plausible);
+
+        // Inside the tolerance the whole length stands as it is, so a correctly drawn route is
+        // never trimmed by a metre and no number a plausible pairing produces moves.
+        var longer = track.Length - plausible > tolerance;
+
+        // Exhaustive on purpose: a cast, or a member a later story adds, must stop here rather
+        // than fall through the boolean that the conservative default was supposed to close.
+        var used = mode switch
+        {
+            TrackLengthMode.Plausible when longer => Math.Max(plausible, anchored),
+            TrackLengthMode.Plausible => track.Length,
+            TrackLengthMode.Full => track.Length,
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(mode), mode, $"Unknown {nameof(TrackLengthMode)}.")
+        };
+
+        return new ChosenTrackLength(Used: used, TrackIsLonger: longer);
+    }
+
+    /// <summary>
+    /// How far the Original's own time says the athlete could have gone, by the priority AD-17
+    /// fixes. First a sensor that measures movement without a fix — a footpod, a wheel sensor or a
+    /// power meter the file declares: its furthest reading is a better witness than any cap.
+    /// Otherwise what the anchors already measured <em>plus</em> the sport's maximum speed over the
+    /// <em>moving</em> seconds that are left after them (FR-5, AD-7).
+    /// <para>
+    /// The remainder and not the whole activity: a cap spread over every second treats the stretch
+    /// the GPS measured as if it too could have been run at 7 m/s, which on the Chabany case
+    /// allows 15 km for a run that measured 3.9 km before the fix died and could have covered six
+    /// more. Bounding only what is unknown is what makes the number generous without making it
+    /// useless — its job is to catch a track twice too long, not to second-guess a plausible one.
+    /// </para>
+    /// <para>
+    /// A sensor is believed only as far as it agrees with the anchors. One claiming less than the
+    /// GPS proved is contradicting positions that can be pointed at, so it is set aside and the cap
+    /// rule decides — which also keeps the athlete moving: a bound at the measured distance exactly
+    /// would hold them at the finish for the whole estimated zone. A declared sensor that recorded
+    /// nothing, or zero, has measured nothing at all and is set aside for the same reason.
+    /// </para>
+    /// </summary>
+    private static double PlausibleDistance(
+        OriginalActivity original,
+        Alignment measured,
+        double anchored,
+        AlignmentOptions options)
+    {
+        if (original.DeclaresSpeedSensor
+            && original.LargestRecordedDistance is > 0 and { } sensor
+            && sensor >= anchored)
+        {
+            return sensor;
+        }
+
+        var movingTotal = original.MovingSecondsFromStart(original.ElapsedSeconds);
+        var movingMeasured = original.MovingSecondsFromStart(measured.MeasuredUntilSeconds);
+
+        return anchored + options.MaxSpeedMetersPerSecond * Math.Max(0, movingTotal - movingMeasured);
+    }
+
+    /// <summary>
+    /// What the repair decided about the track's length: the length the series will end on, and
+    /// whether the whole track outran the Original's own time far enough to warn about (AD-17).
+    /// Two values and not one, because the warning stands even in the mode that ends on the whole
+    /// length — confirming the track changes the result without making it plausible.
+    /// </summary>
+    private readonly record struct ChosenTrackLength(double Used, bool TrackIsLonger);
 
     /// <summary>
     /// Linear interpolation of distance between anchors, over the measure
@@ -253,28 +415,34 @@ public static class RepairService
     }
 
     /// <summary>
-    /// Гарантує FR-5: функція «час → дистанція» монотонно неспадна, фініш = кінець треку.
-    /// The finish is pinned to the track length, so whatever the series was short by is paid at
-    /// the last record — which is how a wrongly scaled interpolation can look like a correct
-    /// total. The payment is therefore bounded by what the athlete could cover in that last
-    /// interval: anything more is a defect upstream, and it says so instead of shipping a
+    /// Гарантує FR-5: функція «час → дистанція» монотонно неспадна, фініш = обрана довжина треку.
+    /// The finish is pinned to <paramref name="chosenTrackLength"/> — the whole track or the part
+    /// of it the Original's time makes plausible (AD-17) — so whatever the series was short by is
+    /// paid at the last record, which is how a wrongly scaled interpolation can look like a
+    /// correct total. The payment is therefore bounded by what the athlete could cover in that
+    /// last interval: anything more is a defect upstream, and it says so instead of shipping a
     /// teleport at the finish line (AD-8).
+    /// <para>
+    /// The running maximum is clamped to the same length, so a trimmed track takes the anchors the
+    /// GPS measured past it down with it rather than leaving a series that overshoots its own
+    /// finish.
+    /// </para>
     /// </summary>
     private static void EnforceMonotonicity(
         double[] distances,
         double[] times,
-        double trackLength,
+        double chosenTrackLength,
         AlignmentOptions options)
     {
         var running = 0.0;
         for (var i = 0; i < distances.Length; i++)
         {
-            running = Math.Clamp(Math.Max(running, distances[i]), 0, trackLength);
+            running = Math.Clamp(Math.Max(running, distances[i]), 0, chosenTrackLength);
             distances[i] = running;
         }
 
         var last = distances.Length - 1;
-        var shortfall = trackLength - distances[last];
+        var shortfall = chosenTrackLength - distances[last];
         var interval = last > 0 ? times[last] - times[last - 1] : 0;
         var plausible = options.MaxSpeedMetersPerSecond * interval + options.SpeedToleranceMeters;
 
@@ -287,7 +455,7 @@ public static class RepairService
                 $"{interval:F0} s cannot cover more than {plausible:F1} m: the distance series is wrong, " +
                 "not the finish.");
 
-        distances[last] = trackLength;
+        distances[last] = chosenTrackLength;
     }
 
     /// <summary>
