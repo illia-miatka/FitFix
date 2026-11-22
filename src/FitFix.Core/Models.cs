@@ -186,6 +186,15 @@ public sealed record OriginalActivity
     public DateTime EndTime => Records[^1].Timestamp;
     public double ElapsedSeconds => (EndTime - StartTime).TotalSeconds;
 
+    /// <summary>
+    /// Whether any record still carries a position. The one place that question is answered: the
+    /// aligner asks it before it looks for anchors and reports <c>NO_ORIGINAL_GPS</c>, and a shell
+    /// asks it to say whether the repair has anything to anchor the track with. Asked of a cleaned
+    /// series it is the honest answer about usable GPS — a series cleaned down to nothing says
+    /// false, exactly as one that never had a position does (AD-25).
+    /// </summary>
+    public bool HasPosition => Records.Any(record => record.Position is not null);
+
     /// <summary>Дистанція, яку записав пристрій (те, що бачить користувач у Strava до виправлення).</summary>
     public double? RecordedDistance => Records.LastOrDefault(r => r.Distance is not null)?.Distance;
 

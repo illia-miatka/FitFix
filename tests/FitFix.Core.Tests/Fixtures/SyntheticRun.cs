@@ -126,6 +126,31 @@ public sealed class SyntheticRun
     }
 
     /// <summary>
+    /// The same run with every position replaced by somewhere impossible — a watch that never
+    /// found a fix and wrote garbage all the way through. Cleaning takes the lot, so the series is
+    /// one that had positions and has none left, which is a different file from one that never
+    /// carried a position at all (AD-25). The records, their timestamps and their sensors are the
+    /// run's own, so only the coordinates differ from the untouched fixture.
+    /// </summary>
+    public SyntheticRun WithNothingButGarbage()
+    {
+        var noise = new Random(3);
+        var garbage = Original.Records
+            .Select(record =>
+            {
+                var somewhere = FarAway(500 + noise.NextDouble() * 2_000, noise.NextDouble() * 360);
+                return record with { Latitude = somewhere.Latitude, Longitude = somewhere.Longitude };
+            });
+
+        return new SyntheticRun
+        {
+            TrackPoints = TrackPoints,
+            TrueRouteLength = TrueRouteLength,
+            Original = Original with { Records = [.. garbage] }
+        };
+    }
+
+    /// <summary>
     /// The same run with the athlete's own laps marked: one lap ending at each of
     /// <paramref name="secondsFromStart"/>, and a last lap running to the end of the activity —
     /// so three unequal laps are <c>WithLapsEndingAt(300, 1500)</c>. Only the lap intervals are
@@ -366,6 +391,54 @@ public sealed class SyntheticRun
             TrackPoints = course.TrackPoints,
             TrueRouteLength = length,
             Original = new OriginalActivity { Records = records, Sport = SportKind.Running }
+        };
+    }
+
+    /// <summary>The cyclist's speed of <see cref="CreateRide"/>, m/s — 54 km/h.</summary>
+    public const double RideSpeedMetersPerSecond = 15;
+
+    /// <summary>How often the ride's watch writes a record, s.</summary>
+    public const int RideSecondsBetweenRecords = 10;
+
+    /// <summary>
+    /// The same course ridden rather than run: a record every ten seconds, 150 m apart. Nothing in
+    /// it is impossible at the cycling cap of 25 m/s and every step of it is impossible at the
+    /// running cap of 7 m/s, so a reader that judged this file by the running profile would throw
+    /// its whole route away while one that judged it by its own sport keeps every position. That
+    /// is what makes it the fixture for any claim about per-sport thresholds: with a run,
+    /// <see cref="AlignmentOptions.ForSport"/> and the defaults are the same numbers.
+    /// </summary>
+    public static SyntheticRun CreateRide()
+    {
+        var course = BuildCourse();
+        var noise = Noise();
+        var records = new List<ActivityRecord>();
+
+        for (var second = 0; second * RideSpeedMetersPerSecond <= course.Length; second += RideSecondsBetweenRecords)
+        {
+            var travelled = second * RideSpeedMetersPerSecond;
+            var measured = Measured(course, travelled, noise);
+
+            records.Add(new ActivityRecord
+            {
+                Timestamp = StartTime.AddSeconds(second),
+                Latitude = measured.Latitude,
+                Longitude = measured.Longitude,
+                Altitude = OriginalStartAltitude + Hill(travelled, course.Length),
+                Distance = travelled,
+                Speed = RideSpeedMetersPerSecond,
+                HeartRate = (byte)(140 + second % 10),
+                Power = 250,
+                Cadence = 90,
+                Temperature = 4
+            });
+        }
+
+        return new SyntheticRun
+        {
+            TrackPoints = course.TrackPoints,
+            TrueRouteLength = course.Length,
+            Original = new OriginalActivity { Records = records, Sport = SportKind.Cycling }
         };
     }
 

@@ -158,6 +158,29 @@ public static class DiagnosticCodes
     /// </summary>
     public const string ClientDisconnected = "CLIENT_DISCONNECTED";
 
+    /// <summary>
+    /// An inspect request named no role the service knows (HTTP 400): no <c>role</c> at all, an
+    /// empty one, or one naming neither <c>original</c> nor <c>track</c>. A FIT file is valid as
+    /// an original and as a track, so the role is required and never guessed (AD-15) — all three
+    /// mistakes are the same mistake to the person who made it, and one code is what the UI
+    /// dictionary needs to say so.
+    /// </summary>
+    public const string InspectRoleInvalid = "INSPECT_ROLE_INVALID";
+
+    /// <summary>
+    /// The request carried no file at all (HTTP 400). Its own code rather than
+    /// <see cref="RequestMalformed"/>: the registry is the interface's whole vocabulary, so a
+    /// dropzone can only say "choose a file" if a code says that is what happened.
+    /// </summary>
+    public const string FileMissing = "FILE_MISSING";
+
+    /// <summary>
+    /// The request carried more than one file (HTTP 400). Inspect describes one file in one role,
+    /// so two of them are refused rather than answered about whichever arrived first — and the
+    /// user is told which of their drops was the problem.
+    /// </summary>
+    public const string TooManyFiles = "TOO_MANY_FILES";
+
     private static readonly Dictionary<string, DiagnosticSeverity> Severities = new(StringComparer.Ordinal)
     {
         // Warnings. A stalled GPS is the normal case this service exists for, and few anchors
@@ -193,7 +216,10 @@ public static class DiagnosticCodes
         [RequestMalformed] = DiagnosticSeverity.Blocking,
         [MethodNotAllowed] = DiagnosticSeverity.Blocking,
         [MediaTypeNotSupported] = DiagnosticSeverity.Blocking,
-        [ClientDisconnected] = DiagnosticSeverity.Blocking
+        [ClientDisconnected] = DiagnosticSeverity.Blocking,
+        [InspectRoleInvalid] = DiagnosticSeverity.Blocking,
+        [FileMissing] = DiagnosticSeverity.Blocking,
+        [TooManyFiles] = DiagnosticSeverity.Blocking
     };
 
     /// <summary>Every declared code. The UI dictionary's key set must equal this set (AD-18).</summary>

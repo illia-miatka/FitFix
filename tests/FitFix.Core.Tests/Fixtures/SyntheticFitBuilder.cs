@@ -180,6 +180,35 @@ public static class SyntheticFitBuilder
         return mesg;
     }
 
+    /// <summary>
+    /// A well-formed FIT file with no <c>record</c> message at all: it passes the header check and
+    /// the integrity check and is still not an activity, which is the one way to reach
+    /// <c>FIT_HAS_NO_RECORDS</c> from the outside.
+    /// </summary>
+    public static byte[] WriteWithoutRecords(System.DateTime timeCreated)
+    {
+        using var buffer = new MemoryStream();
+        var encoder = new Encode(ProtocolVersion.V20);
+        encoder.Open(buffer);
+
+        var fileId = new FileIdMesg();
+        fileId.SetType(Dynastream.Fit.File.Activity);
+        fileId.SetManufacturer(Manufacturer.Garmin);
+        fileId.SetProduct(3121);
+        fileId.SetSerialNumber(1234u);
+        fileId.SetTimeCreated(new FitDateTime(timeCreated));
+        encoder.Write(fileId);
+
+        var activityMesg = new ActivityMesg();
+        activityMesg.SetTimestamp(new FitDateTime(timeCreated));
+        activityMesg.SetNumSessions(1);
+        activityMesg.SetType(Dynastream.Fit.Activity.Manual);
+        encoder.Write(activityMesg);
+
+        encoder.Close();
+        return buffer.ToArray();
+    }
+
     /// <summary>Трек у вигляді FIT-активності (саме так виглядає експорт з онлайн-редактора).</summary>
     public static byte[] WriteTrack(IReadOnlyList<TrackPoint> points, System.DateTime startTime)
     {

@@ -21,11 +21,20 @@ public static class TrackReader
     /// Reads the track and normalises it with the de-duplication spacing from
     /// <paramref name="options"/>; no threshold is defaulted here (AD-10).
     /// </summary>
-    public static ReferenceTrack ReadReferenceTrack(Stream stream, AlignmentOptions options)
+    public static ReferenceTrack ReadReferenceTrack(Stream stream, AlignmentOptions options) =>
+        ReadReferenceTrack(stream, options, out _);
+
+    /// <inheritdoc cref="ReadReferenceTrack(Stream, AlignmentOptions)"/>
+    /// <param name="format">
+    /// The format recognised from the file's own content. The overload exists so that a caller
+    /// which has to name the format — the inspect endpoint does — still reads the track through
+    /// this one composition: a step added here reaches every caller at once (AD-15).
+    /// </param>
+    public static ReferenceTrack ReadReferenceTrack(Stream stream, AlignmentOptions options, out TrackFormat format)
     {
         ArgumentNullException.ThrowIfNull(options);
 
-        var points = ReadPoints(stream, out _);
+        var points = ReadPoints(stream, out format);
         return ReferenceTrack.FromPoints(points, options);
     }
 

@@ -41,6 +41,62 @@ public class ContractShapeTests
     }
 
     [Fact]
+    public void The_original_inspection_body_carries_its_nine_members()
+    {
+        var inspection = new OriginalInspectionResponse(
+            Role: FileRole.Original,
+            Sport: "running",
+            StartedAt: new DateTime(2026, 11, 19, 15, 30, 0, DateTimeKind.Utc),
+            ElapsedSeconds: 2160,
+            RecordedDistanceMeters: 3911,
+            RecordCount: 2161,
+            HasPosition: true,
+            DiscardedPositionCount: 1,
+            Codes: [DiagnosticCodes.PositionsDiscarded]);
+
+        using var document = JsonDocument.Parse(JsonSerializer.Serialize(inspection, Web));
+        var root = document.RootElement;
+
+        Assert.Equal(
+            ["codes", "discardedPositionCount", "elapsedSeconds", "hasPosition", "recordCount",
+             "recordedDistanceMeters", "role", "sport", "startedAt"],
+            root.EnumerateObject().Select(member => member.Name).Order());
+
+        // The role discriminates the answer, and the sport is a string rather than the enum's
+        // number (AD-14). No pace, no fraction, no delta: the interface derives those (AD-6).
+        Assert.Equal("original", root.GetProperty("role").GetString());
+        Assert.Equal("running", root.GetProperty("sport").GetString());
+        Assert.Equal("2026-11-19T15:30:00Z", root.GetProperty("startedAt").GetString());
+
+        // The codes are the registry's, so the dropzone reads them out of the same dictionary the
+        // result screen uses (AD-18).
+        var codes = root.GetProperty("codes").EnumerateArray().Select(code => code.GetString()!);
+        Assert.All(codes, code => Assert.True(DiagnosticCodes.IsDeclared(code), code));
+    }
+
+    [Fact]
+    public void The_track_inspection_body_carries_its_five_members()
+    {
+        var inspection = new TrackInspectionResponse(
+            Role: FileRole.Track,
+            LengthMeters: 6537.2,
+            PointCount: 1308,
+            Format: "gpx",
+            HasAltitude: false);
+
+        using var document = JsonDocument.Parse(JsonSerializer.Serialize(inspection, Web));
+        var root = document.RootElement;
+
+        Assert.Equal(
+            ["format", "hasAltitude", "lengthMeters", "pointCount", "role"],
+            root.EnumerateObject().Select(member => member.Name).Order());
+
+        Assert.Equal("track", root.GetProperty("role").GetString());
+        Assert.Equal("gpx", root.GetProperty("format").GetString());
+        Assert.False(root.GetProperty("hasAltitude").GetBoolean());
+    }
+
+    [Fact]
     public void A_code_the_registry_does_not_know_becomes_the_shells_own_failure()
     {
         // Rather than forwarding a code the UI dictionary has no text for (AD-18).
@@ -96,6 +152,9 @@ public class ContractShapeTests
     [InlineData("0", UploadLimit.DefaultBytes)]
     [InlineData("-1", UploadLimit.DefaultBytes)]
     [InlineData("1048576", 1048576L)]
+    // Above the ceiling an upload could no longer be held in memory in full, so the ceiling
+    // stands in rather than a part spilling to a temporary file.
+    [InlineData("9999999999", UploadLimit.MaxBytes)]
     public void The_upload_limit_is_configuration_with_a_default_behind_it(string? configured, long expected)
     {
         var configuration = new ConfigurationBuilder()
