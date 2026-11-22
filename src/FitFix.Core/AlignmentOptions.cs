@@ -54,6 +54,19 @@ public sealed record AlignmentOptions
     /// <summary>Скільки сегментів уперед дозволено дивитись під час проєкції.</summary>
     public int SearchWindowForward { get; init; } = 40;
 
+    /// <summary>
+    /// The longest a stretch between two consecutive Якорі may last and still be called measured,
+    /// s (FR-4). Above it the position between them was carried across a gap the Original's own GPS
+    /// said nothing about, so the stretch is a Розрахована зона — which is how a dropout that later
+    /// recovers shows up as its own estimated zone instead of condemning everything after it.
+    /// <para>
+    /// Its own threshold and not <see cref="LongGapSeconds"/>, which decides whether an anchor is
+    /// accepted at all: a watch under smart recording writes a point every twenty seconds and is
+    /// measured throughout, and retuning the anchor gate must not reclassify its whole route.
+    /// </para>
+    /// </summary>
+    public double EstimatedZoneGapSeconds { get; init; } = 30;
+
     /// <summary>Напівширина згладжування в Надійній зоні, с.</summary>
     public double SmoothingSeconds { get; init; } = 15;
 

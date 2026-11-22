@@ -126,6 +126,6 @@ public class TrackReaderTests
         var fromFit = RepairService.Repair(run.Original, run.ReferenceTrack);
 
         Assert.Equal(fromFit.Report.RepairedDistanceMeters, fromGpx.Report.RepairedDistanceMeters, 5.0);
-        Assert.Equal(fromFit.Report.MeasuredUntilSeconds, fromGpx.Report.MeasuredUntilSeconds, 5.0);
+        Assert.Equal(fromFit.Alignment.MeasuredUntilSeconds, fromGpx.Alignment.MeasuredUntilSeconds, 5.0);
     }
 }

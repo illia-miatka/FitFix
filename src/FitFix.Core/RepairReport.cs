@@ -52,15 +52,18 @@ public sealed record RepairReport
     public required double MovingSeconds { get; init; }
 
     /// <summary>
-    /// Up to this second the position was measured by anchors; past it, it is interpolated between
-    /// them — the boundary between the measured and the estimated zone (FR-4).
+    /// Which stretches of the activity the position was measured over and which were interpolated,
+    /// in time order, tiling the elapsed time exactly once (FR-4, FR-8). The model a preview draws
+    /// and the athlete reads: GPS drops out, returns and drops again, so a single "measured until"
+    /// would call the kilometre whose signal came back estimated.
     /// </summary>
-    public required double MeasuredUntilSeconds { get; init; }
+    public required IReadOnlyList<TrustZone> Zones { get; init; }
 
     /// <summary>
-    /// The share of the activity whose position was measured by anchors. Settled when the report
-    /// is built, like every other value here: a computed property is a second owner of the number
-    /// and the DTO would then be free to divide differently (AD-14).
+    /// The share of the activity whose position was measured by anchors — the measured
+    /// <see cref="Zones"/> summed over the elapsed time, not a prefix of it. Settled when the
+    /// report is built, like every other value here: a computed property is a second owner of the
+    /// number and the DTO would then be free to divide differently (AD-14).
     /// </summary>
     public required double MeasuredFraction { get; init; }
 

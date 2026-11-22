@@ -157,7 +157,7 @@ public class RepairServiceTests
     public void Measured_zone_pace_matches_the_athlete_within_five_percent()
     {
         var result = RepairSyntheticRun();
-        var measuredUntil = result.Report.MeasuredUntilSeconds;
+        var measuredUntil = result.Alignment.MeasuredUntilSeconds;
 
         Assert.True(measuredUntil > 1000, $"Надійна зона надто коротка: {measuredUntil} с");
 
@@ -205,7 +205,7 @@ public class RepairServiceTests
         var result = RepairSyntheticRun(withGpsFailure: false, withAnyGps: false);
 
         Assert.Contains(DiagnosticCodes.NoOriginalGps, result.Report.Warnings);
-        Assert.Equal(0, result.Report.MeasuredUntilSeconds);
+        Assert.Equal(0, result.Alignment.MeasuredUntilSeconds);
         // The length the repair chose, which is what the series ends on (AD-17) — equal to the
         // whole track here, since this fixture's time makes the whole of it plausible.
         Assert.Equal(result.Report.UsedTrackLengthMeters, result.Report.RepairedDistanceMeters, 1.0);

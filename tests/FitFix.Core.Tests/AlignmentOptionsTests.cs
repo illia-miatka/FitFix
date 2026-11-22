@@ -35,7 +35,7 @@ public class AlignmentOptionsTests
         Assert.Equal(ExpectedRepairedDistance, result.Report.RepairedDistanceMeters, 0.01);
         Assert.Equal(SyntheticRun.DurationSeconds, result.Report.ElapsedSeconds, 0.001);
         Assert.Equal(ExpectedAnchorCount, result.Report.AnchorCount);
-        Assert.Equal(ExpectedMeasuredUntil, result.Report.MeasuredUntilSeconds, 0.001);
+        Assert.Equal(ExpectedMeasuredUntil, result.Alignment.MeasuredUntilSeconds, 0.001);
     }
 
     [Fact]
@@ -75,7 +75,7 @@ public class AlignmentOptionsTests
         // chose differently would be the disagreement AD-17 forbids.
         Assert.Equal(byHand.Report.UsedTrackLengthMeters, throughRoot.Report.UsedTrackLengthMeters, 0.001);
         Assert.Equal(byHand.Report.AnchorCount, throughRoot.Report.AnchorCount);
-        Assert.Equal(byHand.Report.MeasuredUntilSeconds, throughRoot.Report.MeasuredUntilSeconds, 0.001);
+        Assert.Equal(byHand.Alignment.MeasuredUntilSeconds, throughRoot.Alignment.MeasuredUntilSeconds, 0.001);
     }
 
     [Fact]
@@ -270,7 +270,7 @@ public class AlignmentOptionsTests
         Assert.Equal(0, derived.Report.DiscardedPositionCount);
 
         Assert.Equal(cycling.Report.AnchorCount, derived.Report.AnchorCount);
-        Assert.Equal(cycling.Report.MeasuredUntilSeconds, derived.Report.MeasuredUntilSeconds, 0.001);
+        Assert.Equal(cycling.Alignment.MeasuredUntilSeconds, derived.Alignment.MeasuredUntilSeconds, 0.001);
 
         // The running cap rejects every 15 m/s step, which is exactly the mistake the
         // sport-derived overload exists to prevent.

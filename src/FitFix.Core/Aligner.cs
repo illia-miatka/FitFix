@@ -88,6 +88,9 @@ public static class Aligner
         return new Alignment
         {
             Anchors = anchors,
+            // No finish yet, so the zones tile only as far as the anchors reach; EndingAt derives
+            // them again over the whole activity once it knows where it ends.
+            Zones = Zones(anchors, anchors[^1].TimeSeconds, options),
             MeasuredUntilSeconds = anchors[^1].TimeSeconds,
             MeasuredDistanceMeters = anchors[^1].TrackDistance,
             GpsStallAtSeconds = stallAt,
@@ -170,6 +173,10 @@ public static class Aligner
         return new Alignment
         {
             Anchors = anchors,
+            // Over the whole activity now, so the zones cover every second of it once — including
+            // the stretch between the last measured anchor and the finish, which is estimated by
+            // definition and is the one a single boundary used to stand for.
+            Zones = Zones(anchors, elapsedSeconds, options),
             MeasuredUntilSeconds = measured.MeasuredUntilSeconds,
             MeasuredDistanceMeters = measured.MeasuredDistanceMeters,
             GpsStallAtSeconds = measured.GpsStallAtSeconds,
@@ -179,5 +186,64 @@ public static class Aligner
                 ? [.. measured.Warnings, DiagnosticCodes.FewAnchors]
                 : measured.Warnings
         };
+    }
+
+    /// <summary>
+    /// The Зони довіри the anchors imply over <c>[0, <paramref name="untilSeconds"/>]</c> (FR-4,
+    /// FR-8). The stretch between two consecutive anchors is measured while they are no further
+    /// apart than <see cref="AlignmentOptions.EstimatedZoneGapSeconds"/> and estimated when they
+    /// are; before the first anchor and after the last there is nothing but interpolation, so the
+    /// head and the tail are estimated too.
+    /// <para>
+    /// The result tiles the span exactly once: adjacent stretches of one kind are merged into a
+    /// single zone and an empty one is never emitted, which is what makes "no two neighbours share
+    /// a kind" and "no zone is of no duration" true of every alignment rather than of most.
+    /// </para>
+    /// </summary>
+    private static IReadOnlyList<TrustZone> Zones(
+        IReadOnlyList<Anchor> anchors,
+        double untilSeconds,
+        AlignmentOptions options)
+    {
+        var zones = new List<TrustZone>();
+
+        if (anchors.Count == 0)
+        {
+            // Nothing was measured at all, so the whole span is one estimate — the activity whose
+            // watch never found a fix (AD-15).
+            Append(zones, ZoneKind.Estimated, 0, untilSeconds);
+            return zones;
+        }
+
+        Append(zones, ZoneKind.Estimated, 0, anchors[0].TimeSeconds);
+
+        for (var index = 1; index < anchors.Count; index++)
+        {
+            var from = anchors[index - 1].TimeSeconds;
+            var to = anchors[index].TimeSeconds;
+            Append(
+                zones,
+                to - from <= options.EstimatedZoneGapSeconds ? ZoneKind.Measured : ZoneKind.Estimated,
+                from,
+                to);
+        }
+
+        Append(zones, ZoneKind.Estimated, anchors[^1].TimeSeconds, untilSeconds);
+        return zones;
+    }
+
+    /// <summary>
+    /// Adds one stretch to the tiling: nothing for a stretch of no duration, an extension of the
+    /// last zone when it is of the same kind, and a new zone otherwise.
+    /// </summary>
+    private static void Append(List<TrustZone> zones, ZoneKind kind, double from, double to)
+    {
+        if (to <= from)
+            return;
+
+        if (zones.Count > 0 && zones[^1].Kind == kind)
+            zones[^1] = zones[^1] with { ToSeconds = to };
+        else
+            zones.Add(new TrustZone(kind, from, to));
     }
 }

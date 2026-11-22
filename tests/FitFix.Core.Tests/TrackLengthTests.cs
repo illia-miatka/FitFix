@@ -56,7 +56,7 @@ public class TrackLengthTests
         // The numbers pinned before this story, read from their one owner.
         Assert.Equal(AlignmentOptionsTests.ExpectedRepairedDistance, result.Report.RepairedDistanceMeters, 0.01);
         Assert.Equal(AlignmentOptionsTests.ExpectedAnchorCount, result.Report.AnchorCount);
-        Assert.Equal(AlignmentOptionsTests.ExpectedMeasuredUntil, result.Report.MeasuredUntilSeconds, 0.001);
+        Assert.Equal(AlignmentOptionsTests.ExpectedMeasuredUntil, result.Alignment.MeasuredUntilSeconds, 0.001);
     }
 
     [Fact]

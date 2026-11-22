@@ -397,8 +397,8 @@ public class PauseTests
 
         Assert.DoesNotContain(DiagnosticCodes.GpsStallDetected, result.Report.Warnings);
         Assert.True(
-            result.Report.MeasuredUntilSeconds > SyntheticRun.PauseStartSeconds + SyntheticRun.PauseSeconds,
-            $"the measured zone ended at {result.Report.MeasuredUntilSeconds} s, before the pause was over");
+            result.Alignment.MeasuredUntilSeconds > SyntheticRun.PauseStartSeconds + SyntheticRun.PauseSeconds,
+            $"the measured zone ended at {result.Alignment.MeasuredUntilSeconds} s, before the pause was over");
     }
 
     [Fact]
@@ -545,7 +545,7 @@ public class PauseTests
             run.Original.MovingSecondsFromStart(run.Original.ElapsedSeconds));
         Assert.Equal(AlignmentOptionsTests.ExpectedRepairedDistance, result.Report.RepairedDistanceMeters, 0.01);
         Assert.Equal(AlignmentOptionsTests.ExpectedAnchorCount, result.Report.AnchorCount);
-        Assert.Equal(AlignmentOptionsTests.ExpectedMeasuredUntil, result.Report.MeasuredUntilSeconds, 0.001);
+        Assert.Equal(AlignmentOptionsTests.ExpectedMeasuredUntil, result.Alignment.MeasuredUntilSeconds, 0.001);
     }
 
     private static OriginalActivity Read(byte[] bytes)

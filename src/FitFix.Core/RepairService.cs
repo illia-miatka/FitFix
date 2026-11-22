@@ -67,6 +67,9 @@ public static class RepairService
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(options.MaxSpeedMetersPerSecond);
         ArgumentOutOfRangeException.ThrowIfNegative(options.TrackLengthToleranceMeters);
         ArgumentOutOfRangeException.ThrowIfNegative(options.TrackLengthToleranceFraction);
+        // A gap of nothing makes every stretch between two anchors estimated, so the report
+        // would claim a measured share of zero about an activity the GPS covered.
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(options.EstimatedZoneGapSeconds);
 
         // No elapsed time means no time axis to spread the track over: the interpolation would
         // be left with a single anchor. User data, so it refuses with a code (AD-18).
@@ -115,7 +118,7 @@ public static class RepairService
             .ToArray();
 
         var distances = InterpolateDistances(movingTimes, anchorMovingTimes, alignment.Anchors);
-        Smooth(distances, times, PauseBlocks(cleaned), alignment.MeasuredUntilSeconds, options);
+        Smooth(distances, times, PauseBlocks(cleaned), alignment.Zones, options);
         EnforceMonotonicity(distances, times, length.Used, options);
 
         // Speed is a distance over the time the athlete was moving for, never over the clock, and
@@ -170,7 +173,9 @@ public static class RepairService
             // disbelieved would have the two add up past the elapsed time.
             PausedSeconds = cleaned.PausedSeconds,
             MovingSeconds = total.MovingSeconds,
-            MeasuredUntilSeconds = alignment.MeasuredUntilSeconds,
+            // The zones themselves, not a boundary: which stretches the position was measured over
+            // is what a preview has to draw and what the athlete has to be able to read (FR-8).
+            Zones = alignment.Zones,
             MeasuredFraction = summary.MeasuredFraction,
             OriginalPaceSecondsPerKm = summary.OriginalPaceSecondsPerKilometer,
             RepairedPaceSecondsPerKm = total.PaceSecondsPerKilometer,
@@ -374,23 +379,35 @@ public static class RepairService
 
     /// <summary>
     /// Симетричне ковзне середнє: вузьке у Надійній зоні, широке в Розрахованій,
-    /// де лінійна інтерполяція дає злами на Якорях. The window is clipped at pause boundaries,
-    /// so the records before a pause are smoothed against their own side of it and no record
-    /// inside one gains distance from the movement outside (AD-21). Monotonicity is verified
+    /// де лінійна інтерполяція дає злами на Якорях. The width is chosen per record from the
+    /// <see cref="Alignment.Zones"/> the record falls in, so every estimated stretch is widened —
+    /// not only the one after a single boundary, which left the kinks inside a dropout that later
+    /// recovered exactly as sharp as the interpolation made them (AD-21). The window is clipped at
+    /// pause boundaries, so the records before a pause are smoothed against their own side of it
+    /// and no record inside one gains distance from the movement outside. Monotonicity is verified
     /// after this, never instead of it (AD-8).
     /// </summary>
     private static void Smooth(
         double[] distances,
         double[] times,
         int[] blocks,
-        double measuredUntil,
+        IReadOnlyList<TrustZone> zones,
         AlignmentOptions options)
     {
         var raw = (double[])distances.Clone();
+        // The records rise through the activity and so do the zones, so the walk is one pass over
+        // both rather than a search per record.
+        var zone = 0;
 
         for (var i = 0; i < distances.Length; i++)
         {
-            var halfWidth = times[i] <= measuredUntil
+            while (zone < zones.Count - 1 && times[i] > zones[zone].ToSeconds)
+                zone++;
+
+            // A record on a boundary is smoothed as part of the zone that ends there, which is
+            // what keeps the last measured second narrow. An alignment with no zone at all
+            // measured nothing, so the wide window is the honest one.
+            var halfWidth = zones.Count > 0 && zones[zone].Kind == ZoneKind.Measured
                 ? options.SmoothingSeconds
                 : options.EstimatedZoneSmoothingSeconds;
 

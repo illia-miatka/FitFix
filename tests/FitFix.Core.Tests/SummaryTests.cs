@@ -101,9 +101,13 @@ public class SummaryTests
             0.001);
 
         // The measured fraction is a settled number rather than a division a second reader could
-        // do differently (AD-14).
+        // do differently (AD-14), and it is the measured zones added up over the elapsed time
+        // rather than a prefix of it (FR-8).
+        var measuredSeconds = result.Report.Zones
+            .Where(zone => zone.Kind == ZoneKind.Measured)
+            .Sum(zone => zone.ToSeconds - zone.FromSeconds);
         Assert.Equal(
-            result.Report.MeasuredUntilSeconds / result.Report.ElapsedSeconds,
+            measuredSeconds / result.Report.ElapsedSeconds,
             result.Report.MeasuredFraction,
             1e-9);
     }
@@ -486,7 +490,7 @@ public class SummaryTests
 
     /// <summary>An alignment that measured nothing, for a series assembled rather than repaired.</summary>
     private static Alignment NoAnchors =>
-        new() { Anchors = [], MeasuredUntilSeconds = 0, MeasuredDistanceMeters = 0, Warnings = [] };
+        new() { Anchors = [], Zones = [], MeasuredUntilSeconds = 0, MeasuredDistanceMeters = 0, Warnings = [] };
 
     /// <summary>
     /// A series of <paramref name="seconds"/> + 1 records at 1 Hz, with the speed and the altitude
