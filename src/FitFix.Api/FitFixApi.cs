@@ -7,10 +7,10 @@ using Microsoft.AspNetCore.Http.Features;
 namespace FitFix.Api;
 
 /// <summary>
-/// The service itself: the upload bound, the failure contract and the health endpoint
-/// (Story 2.1). <c>Program</c> runs it; the HTTP tests host it with probe endpoints of their
-/// own, so the pipeline they exercise is this one and not a copy of it. The repair and inspect
-/// endpoints arrive in Stories 2.2 and 2.3, the built SPA in Story 2.8.
+/// The service itself: the upload bound, the failure contract (Story 2.1), the health endpoint
+/// and the inspect endpoint (Story 2.2). <c>Program</c> runs it; the HTTP tests host it with
+/// probe endpoints of their own, so the pipeline they exercise is this one and not a copy of it.
+/// The repair endpoint arrives in Story 2.3, the built SPA in Story 2.8.
 /// </summary>
 public static class FitFixApi
 {
@@ -28,9 +28,10 @@ public static class FitFixApi
     private const int MaxLoggedLength = 48;
 
     /// <summary>
-    /// The builder with the input bound applied (AD-13): Kestrel's own ceiling and the
-    /// multipart reader's, both from <c>FITFIX_MAX_UPLOAD_BYTES</c>, so the form reader's
-    /// 128 MB default cannot sit above the number a deployment chose.
+    /// The builder with the input bound applied (AD-13): Kestrel's own ceiling, the multipart
+    /// reader's and the threshold past which an uploaded part would be buffered to a temporary
+    /// file, all three from <c>FITFIX_MAX_UPLOAD_BYTES</c> — so the form reader's 128 MB default
+    /// cannot sit above the number a deployment chose, and nothing uploaded reaches the disk.
     /// </summary>
     public static WebApplicationBuilder CreateBuilder(string[] args)
     {
@@ -43,15 +44,22 @@ public static class FitFixApi
         {
             options.MultipartBodyLengthLimit = maxUploadBytes;
             options.BufferBodyLengthLimit = maxUploadBytes;
+            // An uploaded part larger than this threshold is buffered to a temporary file, and
+            // the default is 64 KB — every real activity. Nothing uploaded may touch the disk
+            // (AD-3), and Story 2.8's container has a read-only filesystem to write it to, so
+            // the threshold is the upload bound itself: a part that fits the limit fits memory.
+            // UploadLimit keeps that bound inside int, which is what makes this a safe cast.
+            options.MemoryBufferThreshold = (int)maxUploadBytes;
         });
 
         return builder;
     }
 
     /// <summary>
-    /// The application: the failure handler, the health endpoint, and whatever
-    /// <paramref name="additionalEndpoints"/> adds. Production adds none — the probes that
-    /// raise each kind of failure on demand belong to the test host, not to the shipped binary.
+    /// The application: the failure handler, the health endpoint, <c>POST /api/inspect</c>, and
+    /// whatever <paramref name="additionalEndpoints"/> adds. Production adds none — the probes
+    /// that raise each kind of failure on demand belong to the test host, not to the shipped
+    /// binary.
     /// </summary>
     public static WebApplication Build(
         WebApplicationBuilder builder,
@@ -76,6 +84,10 @@ public static class FitFixApi
         app.Use((context, next) => HandleAsync(context, next, logger, maxUploadBytes));
 
         app.MapGet("/health", () => Results.Ok(new HealthResponse("ok")));
+
+        // Story 2.2. Its own refusals travel through the handler above like every other, so the
+        // endpoint states what is wrong with a code and never writes a status of its own.
+        InspectEndpoint.Map(app);
 
         additionalEndpoints?.Invoke(app);
 
@@ -122,10 +134,18 @@ public static class FitFixApi
         {
             code = await RefuseAsync(context, exception.StatusCode, FailureStatus.ForStatus(exception.StatusCode), logger);
         }
-        // The multipart reader refuses past its own limits, which are the same number (AD-13).
+        // What the form reader raises, for its size limit and for a malformed form alike: a
+        // multipart header with no boundary, more form fields than the count limit, a part that
+        // ends mid-header. Only a body that actually reached the bound is a size refusal — the
+        // reader's own length limit is the same number (AD-13), and Kestrel, which counts the
+        // bytes as they arrive, refuses anything past it before this. Everything below the bound
+        // is a request the service could not parse, and telling its sender that their file is too
+        // large would send them looking for a smaller one.
         catch (InvalidDataException)
         {
-            code = await RefuseAsync(context, StatusCodes.Status413PayloadTooLarge, DiagnosticCodes.FileTooLarge, logger);
+            code = inputBytes >= maxUploadBytes
+                ? await RefuseAsync(context, StatusCodes.Status413PayloadTooLarge, DiagnosticCodes.FileTooLarge, logger)
+                : await RefuseAsync(context, StatusCodes.Status400BadRequest, DiagnosticCodes.RequestMalformed, logger);
         }
         // The client left. Nothing can be written any more, and nothing is wrong here.
         catch (Exception exception) when (IsClientGone(context, exception))

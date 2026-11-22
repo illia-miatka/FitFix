@@ -27,6 +27,14 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The core suite's synthetic fixtures, linked rather than copied: an HTTP test has to send
+         the very same bytes the core tests read, and a second generator of a FIT activity would
+         drift from this one. Only the fixtures are shared — no test of the core suite runs here. -->
+    <Compile Include="..\FitFix.Core.Tests\Fixtures\SyntheticRun.cs" Link="Fixtures\SyntheticRun.cs" />
+    <Compile Include="..\FitFix.Core.Tests\Fixtures\SyntheticFitBuilder.cs" Link="Fixtures\SyntheticFitBuilder.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Using Include="Xunit" />
   </ItemGroup>
 

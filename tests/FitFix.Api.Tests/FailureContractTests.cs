@@ -3,7 +3,11 @@ using System.Text;
 using System.Text.Json;
 using FitFix.Api.Contracts;
 using FitFix.Core.Diagnostics;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http.Features;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace FitFix.Api.Tests;
 
@@ -120,14 +124,49 @@ public class FailureContractTests : IDisposable
     }
 
     [Fact]
-    public async Task The_form_readers_own_refusal_leaves_as_the_size_refusal()
+    public async Task A_form_the_reader_cannot_parse_is_the_requests_own_failure_not_a_size_refusal()
     {
-        // What a multipart body past the form limits raises; those limits are the same number
-        // as the upload limit, so the refusal is the same refusal.
+        // The form reader raises one exception type for its size limit and for a malformed form
+        // alike: a multipart header with no boundary, more form fields than the count limit. A
+        // three-byte body is no size problem, and telling its sender that their file is too large
+        // would send them looking for a smaller one.
         using var response = await PostAsync("/probe/fail?kind=form");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(DiagnosticCodes.RequestMalformed, (await ReadProblemAsync(response)).Code);
+    }
+
+    [Fact]
+    public async Task A_form_refusal_on_a_body_that_reached_the_bound_is_the_size_refusal()
+    {
+        // The reader's own length limit is the upload bound (AD-13), so a body that actually got
+        // there is refused for its size — the one form refusal that is one.
+        using var small = new ApiHost("1024");
+
+        using var response = await small.Client.PostAsync(
+            "/probe/fail?kind=form", new ByteArrayContent(new byte[1024]));
 
         Assert.Equal(HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
         Assert.Equal(DiagnosticCodes.FileTooLarge, (await ReadProblemAsync(response)).Code);
+    }
+
+    [Fact]
+    public void The_form_reader_buffers_a_part_up_to_the_whole_upload_limit()
+    {
+        // Past MemoryBufferThreshold an uploaded part is buffered to a temporary file, and the
+        // default is 64 KB — every real activity. Nothing uploaded may touch the disk (AD-3), and
+        // Story 2.8's container has a read-only filesystem to write it to, so the threshold is the
+        // upload bound itself: no part that passes the bound can exceed the buffer. BufferBody
+        // stays off with it, or the whole body would take the same path on its own terms.
+        using var app = FitFixApi
+            .CreateBuilder([$"--contentRoot={AppContext.BaseDirectory}", $"--{UploadLimit.ConfigurationKey}=4096"])
+            .Build();
+
+        var form = app.Services.GetRequiredService<IOptions<FormOptions>>().Value;
+
+        Assert.Equal(4096, form.MultipartBodyLengthLimit);
+        Assert.Equal(4096, form.MemoryBufferThreshold);
+        Assert.False(form.BufferBody);
     }
 
     [Fact]

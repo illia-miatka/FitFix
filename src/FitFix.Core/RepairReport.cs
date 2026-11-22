@@ -8,7 +8,13 @@ namespace FitFix.Core;
 /// </summary>
 public sealed record RepairReport
 {
-    public required double OriginalDistanceMeters { get; init; }
+    /// <summary>
+    /// The distance the device itself recorded — the "before" the athlete saw in Strava — or
+    /// <c>null</c> when no record carried a distance at all. Null rather than zero, like
+    /// <see cref="ElevationGainMeters"/>: a file that measured nothing has not measured zero
+    /// metres, and a shell describing the same file before the repair says the same thing (AD-15).
+    /// </summary>
+    public required double? OriginalDistanceMeters { get; init; }
     public required double RepairedDistanceMeters { get; init; }
     public required double TrackLengthMeters { get; init; }
     public required double ElapsedSeconds { get; init; }

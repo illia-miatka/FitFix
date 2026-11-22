@@ -108,8 +108,9 @@ public static class RepairService
         var report = new RepairReport
         {
             // The device's own distance field, which cleaning never touches: the "before" number
-            // has to stay what the user saw in Strava.
-            OriginalDistanceMeters = original.RecordedDistance ?? 0,
+            // has to stay what the user saw in Strava, and stay absent when the watch recorded
+            // no distance at all.
+            OriginalDistanceMeters = original.RecordedDistance,
             RepairedDistanceMeters = total.DistanceMeters,
             TrackLengthMeters = track.Length,
             // The span of the series the file was written from, so the report cannot state one

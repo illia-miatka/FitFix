@@ -122,3 +122,11 @@ Append-only: add entries, never rewrite existing ones.
 - source_spec: `spec-2-1-problem-details.md`
   summary: A 413 written before the body is drained may never reach the client.
   evidence: The refusal is written as soon as a declared `Content-Length` exceeds the limit, so a client still uploading can hit a write error and never read the response body. Draining the body first, or closing the connection deliberately, is the usual remedy; both cost something and the right choice depends on how the browser behaves against the real endpoint, which Story 2.3 is where that can be measured.
+
+- source_spec: `spec-2-2-inspect-endpoint.md`
+  summary: Nothing bounds how many uploads are buffered in memory at once.
+  evidence: `MemoryBufferThreshold` is raised to the upload limit so no part ever spills to a temp file, which AD-3 requires and Story 2.8's read-only container needs — but the old 64 KB default was also what kept concurrent uploads off the heap. Several 20 MB requests at once now sit in memory together. AD-11 keeps processing synchronous inside the request, so the remedy is a concurrency gate rather than a queue; the number belongs with the story that measures the container's own memory, which is 2.8.
+
+- source_spec: `spec-2-2-inspect-endpoint.md`
+  summary: The synthetic fixtures are linked into a second test project by source.
+  evidence: `tests/FitFix.Api.Tests` compiles `SyntheticRun.cs` and `SyntheticFitBuilder.cs` from the core suite so the two projects cannot drift, at the cost of duplicating both types into a second assembly. A small `tests/FitFix.TestFixtures` project is the usual shape and becomes worth the churn when a third suite needs them — the frontend's own tests in Epic 2 will not, so this can wait.

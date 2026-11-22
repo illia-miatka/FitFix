@@ -114,7 +114,11 @@ static void PrintReport(RepairResult result, string output)
     var culture = CultureInfo.InvariantCulture;
 
     Console.WriteLine($"Вид спорту:        {result.Sport}");
-    Console.WriteLine($"Дистанція:         {report.OriginalDistanceMeters / 1000:F2} км → {report.RepairedDistanceMeters / 1000:F2} км");
+    // A watch that recorded no distance states none; printing a flat zero before the arrow would
+    // read as a measurement of standing still.
+    Console.WriteLine(report.OriginalDistanceMeters is { } recorded
+        ? $"Дистанція:         {recorded / 1000:F2} км → {report.RepairedDistanceMeters / 1000:F2} км"
+        : $"Дистанція:         {report.RepairedDistanceMeters / 1000:F2} км (пристрій дистанції не записав)");
     Console.WriteLine($"Загальний час:     {FormatDuration(report.ElapsedSeconds)}");
 
     // The written file states moving time, not elapsed time (FR-6), so the report says both —

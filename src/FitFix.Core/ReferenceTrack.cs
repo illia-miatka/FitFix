@@ -20,7 +20,16 @@ public sealed class ReferenceTrack
         _points = points;
         _altitudes = altitudes;
         _cumulative = cumulative;
+        HasAltitude = altitudes.Any(altitude => altitude is not null);
     }
+
+    /// <summary>
+    /// Whether the track carries an altitude anywhere along it. A different question from
+    /// <see cref="StartAltitude"/>, which is the single value the repair's altitude offset is
+    /// computed from: a track whose first point lost its elevation still has a profile to show,
+    /// and a shell that read the start alone would hide it.
+    /// </summary>
+    public bool HasAltitude { get; }
 
     public IReadOnlyList<GeoPoint> Points => _points;
     public IReadOnlyList<double> Cumulative => _cumulative;

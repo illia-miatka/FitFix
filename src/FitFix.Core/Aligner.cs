@@ -30,7 +30,10 @@ public static class Aligner
         var elapsed = original.ElapsedSeconds;
 
         var positioned = original.Records.Where(r => r.Position is not null).ToArray();
-        if (positioned.Length == 0)
+
+        // The model owns the question, so a shell describing the same series before any repair
+        // cannot answer it differently (AD-15).
+        if (!original.HasPosition)
             warnings.Add(DiagnosticCodes.NoOriginalGps);
         else if (track.MinDeviationToWholeTrack(positioned[0].Position!.Value) > options.TrackFarFromOriginalMeters)
             warnings.Add(DiagnosticCodes.TrackFarFromOriginal);
