@@ -16,7 +16,24 @@ public sealed record RepairReport
     /// </summary>
     public required double? OriginalDistanceMeters { get; init; }
     public required double RepairedDistanceMeters { get; init; }
+
+    /// <summary>
+    /// The whole length of the reference track as the user drew or exported it, m — whatever the
+    /// repair then decided to use. Reported in both modes, because the athlete cannot choose
+    /// between two lengths they are never shown (AD-17).
+    /// </summary>
     public required double TrackLengthMeters { get; init; }
+
+    /// <summary>
+    /// The part of that track the repair actually used, m — the length the distance series ends
+    /// on. Below <see cref="TrackLengthMeters"/> when the track outruns what the Original's own
+    /// time makes plausible and nobody has confirmed the track, in which case
+    /// <c>TRACK_LONGER_THAN_ACTIVITY</c> is among the <see cref="Warnings"/> (AD-17). Reported
+    /// always, so a shell showing the result of a confirmed repair can still say which of the two
+    /// lengths it ended on.
+    /// </summary>
+    public required double UsedTrackLengthMeters { get; init; }
+
     public required double ElapsedSeconds { get; init; }
 
     /// <summary>

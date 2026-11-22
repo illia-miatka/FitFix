@@ -5,17 +5,28 @@ namespace FitFix.Core;
 /// <summary>
 /// Будує Вирівнювання: з GPS-точок Оригіналу набирає монотонний ланцюжок Якорів
 /// на Еталонному треку (PRD FR-4).
+/// <para>
+/// In two steps, because the two depend on each other's inputs and not on each other's outputs:
+/// <see cref="Measure"/> finds the anchors the Original's own GPS establishes, and
+/// <see cref="EndingAt"/> pins the finish to the length the repair chose from them (AD-17). One
+/// call could not do both — the chosen length is computed from the measured distance.
+/// </para>
 /// </summary>
 public static class Aligner
 {
     /// <summary>
-    /// Builds the alignment from <paramref name="original"/>, the cleaned series (AD-25), while
-    /// the stall detector reads <paramref name="asRecorded"/> — the series as the watch wrote it.
-    /// The detector walks positioned records only, so a blanked burst would bridge its window and
-    /// manufacture a stall that never happened, sending every later anchor into the estimated
-    /// zone. Taking both series is what makes that mistake impossible from the outside.
+    /// Builds the measured part of the alignment from <paramref name="original"/>, the cleaned
+    /// series (AD-25), while the stall detector reads <paramref name="asRecorded"/> — the series as
+    /// the watch wrote it. The detector walks positioned records only, so a blanked burst would
+    /// bridge its window and manufacture a stall that never happened, sending every later anchor
+    /// into the estimated zone. Taking both series is what makes that mistake impossible from the
+    /// outside.
+    /// <para>
+    /// The result carries no finish: its last anchor is the last one the GPS measured. Hand it to
+    /// <see cref="EndingAt"/> to close the activity on a length.
+    /// </para>
     /// </summary>
-    public static Alignment Align(
+    public static Alignment Measure(
         OriginalActivity original,
         OriginalActivity asRecorded,
         ReferenceTrack track,
@@ -27,7 +38,6 @@ public static class Aligner
         ArgumentNullException.ThrowIfNull(options);
 
         var warnings = new List<string>();
-        var elapsed = original.ElapsedSeconds;
 
         var positioned = original.Records.Where(r => r.Position is not null).ToArray();
 
@@ -75,23 +85,99 @@ public static class Aligner
             segment = projection.SegmentIndex;
         }
 
-        var measuredUntil = anchors[^1].TimeSeconds;
+        return new Alignment
+        {
+            Anchors = anchors,
+            MeasuredUntilSeconds = anchors[^1].TimeSeconds,
+            MeasuredDistanceMeters = anchors[^1].TrackDistance,
+            GpsStallAtSeconds = stallAt,
+            Warnings = warnings
+        };
+    }
 
-        // Кінцевий Якір — кінець активності у кінці треку (FR-5).
-        if (elapsed > measuredUntil)
-            anchors.Add(new Anchor(elapsed, track.Length, 0));
+    /// <summary>
+    /// The same alignment with its finish pinned: the activity ends at
+    /// <paramref name="elapsedSeconds"/> on <paramref name="chosenTrackLength"/> — the whole track,
+    /// or the part of it the Original's own time makes plausible (AD-17), FR-5 either way. The
+    /// length arrives as a number rather than as a mode, because choosing between the two lengths
+    /// is the repair's job and doing it again here would be a second owner of the decision.
+    /// <para>
+    /// When the GPS measured anchors to the very last record there is no estimated zone to spread a
+    /// difference over, so the finish replaces that last anchor — and the replacement is refused
+    /// when it moves the athlete further in that one interval than the sport's cap allows, exactly
+    /// as the monotonicity pass refuses the shortfall in the other direction (AD-8). An activity
+    /// whose anchors stop earlier keeps the appended finish and the estimated zone between: a long
+    /// interpolation there is the design, not a teleport.
+    /// </para>
+    /// </summary>
+    /// <exception cref="MalformedArgumentException">
+    /// The finish would move the athlete an impossible distance in the activity's last interval
+    /// (<see cref="DiagnosticCodes.DistanceSeriesImplausible"/>).
+    /// </exception>
+    public static Alignment EndingAt(
+        Alignment measured,
+        double elapsedSeconds,
+        double chosenTrackLength,
+        AlignmentOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(measured);
+        ArgumentNullException.ThrowIfNull(options);
+
+        // A length of nothing leaves every record on the start line, so it is a defect in the
+        // caller rather than a claim about the user's files: no declared code, no FitFixException.
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(chosenTrackLength);
+
+        var anchors = new List<Anchor>(measured.Anchors);
+
+        // Кінцевий Якір — кінець активності у кінці обраної довжини треку (FR-5, AD-17).
+        if (elapsedSeconds > measured.MeasuredUntilSeconds || anchors.Count < 2)
+        {
+            anchors.Add(new Anchor(elapsedSeconds, chosenTrackLength, 0));
+        }
         else
-            anchors[^1] = new Anchor(elapsed, track.Length, anchors[^1].DeviationMeters);
+        {
+            var previous = anchors[^2];
+            var interval = elapsedSeconds - previous.TimeSeconds;
 
-        if (anchors.Count < options.MinimumAnchorCount)
-            warnings.Add(DiagnosticCodes.FewAnchors);
+            // What the finish may pay for: the distance the sport's cap covers in that interval,
+            // plus the divergence between a track and an activity this configuration already
+            // tolerates (AD-17). The second term is what a projection owes — the last anchor sits
+            // where the athlete's last fix fell on the track, which is short of its end by however
+            // much of it they did not run — and without it the pinned finish would contradict the
+            // very tolerance that chose the whole length.
+            var tolerated = Math.Max(
+                options.TrackLengthToleranceMeters,
+                options.TrackLengthToleranceFraction * chosenTrackLength);
+            var step = options.MaxSpeedMetersPerSecond * interval
+                + options.SpeedToleranceMeters
+                + tolerated;
+
+            // Derived from the activity and the track the user offered, so it carries a declared
+            // code rather than a bare exception a shell could only report as an internal error
+            // (AD-18).
+            if (chosenTrackLength - previous.TrackDistance > step)
+                throw new MalformedArgumentException(
+                    DiagnosticCodes.DistanceSeriesImplausible,
+                    $"The activity's GPS reached {measured.MeasuredDistanceMeters:F1} m at its last "
+                        + $"record, so finishing on {chosenTrackLength:F1} m would cover "
+                        + $"{chosenTrackLength - previous.TrackDistance:F1} m in the last "
+                        + $"{interval:F0} s, where no more than {step:F1} m is possible: the track "
+                        + "is longer than this activity, not the activity shorter than itself.");
+
+            anchors[^1] = new Anchor(elapsedSeconds, chosenTrackLength, anchors[^1].DeviationMeters);
+        }
 
         return new Alignment
         {
             Anchors = anchors,
-            MeasuredUntilSeconds = measuredUntil,
-            GpsStallAtSeconds = stallAt,
-            Warnings = warnings
+            MeasuredUntilSeconds = measured.MeasuredUntilSeconds,
+            MeasuredDistanceMeters = measured.MeasuredDistanceMeters,
+            GpsStallAtSeconds = measured.GpsStallAtSeconds,
+            // The first and the last anchor are counted too (FR-4), so the thinness of the chain
+            // can only be judged once the finish is on it.
+            Warnings = anchors.Count < options.MinimumAnchorCount
+                ? [.. measured.Warnings, DiagnosticCodes.FewAnchors]
+                : measured.Warnings
         };
     }
 }

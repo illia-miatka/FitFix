@@ -99,6 +99,25 @@ public sealed record AlignmentOptions
     public int MinimumAnchorCount { get; init; } = 4;
 
     /// <summary>
+    /// The smallest divergence between the track's whole length and the plausible distance that
+    /// may be reported, m — the floor under <see cref="TrackLengthToleranceFraction"/> (AD-17).
+    /// Inside the tolerance the whole length is taken as it is: a declared footpod and a correctly
+    /// drawn route disagree by a percent or two, and a blocking warning on that noise would teach
+    /// the athlete to click through the one case it exists for — a lap drawn one time too many,
+    /// which is hundreds of metres at the very least.
+    /// </summary>
+    public double TrackLengthToleranceMeters { get; init; } = 200;
+
+    /// <summary>
+    /// The share of the plausible distance the two lengths may differ by, on top of the floor
+    /// above: the tolerance is <c>max(floor, fraction × plausible)</c>. A fraction and not metres
+    /// alone, because a sensor's disagreement with a drawn route scales with the route — a flat
+    /// 200 m would warn about every 100 km ride with a wheel sensor, where 1–2 km of divergence is
+    /// ordinary, and warning about all of them is the same as warning about none (AD-17).
+    /// </summary>
+    public double TrackLengthToleranceFraction { get; init; } = 0.02;
+
+    /// <summary>
     /// The thresholds for one sport. Running is the record's own profile — stating its speed cap
     /// again here would be a second place for the same number to live, free to drift from the
     /// first — so only the other sports override anything.

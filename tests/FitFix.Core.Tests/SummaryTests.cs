@@ -486,7 +486,7 @@ public class SummaryTests
 
     /// <summary>An alignment that measured nothing, for a series assembled rather than repaired.</summary>
     private static Alignment NoAnchors =>
-        new() { Anchors = [], MeasuredUntilSeconds = 0, Warnings = [] };
+        new() { Anchors = [], MeasuredUntilSeconds = 0, MeasuredDistanceMeters = 0, Warnings = [] };
 
     /// <summary>
     /// A series of <paramref name="seconds"/> + 1 records at 1 Hz, with the speed and the altitude

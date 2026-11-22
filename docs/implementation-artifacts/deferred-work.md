@@ -130,3 +130,15 @@ Append-only: add entries, never rewrite existing ones.
 - source_spec: `spec-2-2-inspect-endpoint.md`
   summary: The synthetic fixtures are linked into a second test project by source.
   evidence: `tests/FitFix.Api.Tests` compiles `SyntheticRun.cs` and `SyntheticFitBuilder.cs` from the core suite so the two projects cannot drift, at the cost of duplicating both types into a second assembly. A small `tests/FitFix.TestFixtures` project is the usual shape and becomes worth the churn when a third suite needs them — the frontend's own tests in Epic 2 will not, so this can wait.
+
+- source_spec: `spec-1-8-over-long-track.md`
+  summary: A speed sensor declared over classic Bluetooth, or with no `source_type` at all, is read as no sensor.
+  evidence: `FitActivityReader` asks the FIT SDK for `antplus_device_type` and `ble_device_type`, which are subfields the SDK resolves only when `device_info` states `source_type` as `antplus` or `bluetooth_low_energy`. A message with `source_type = bluetooth`, or with a bare `device_type` of 124 and nothing else, therefore declares nothing, and the chosen length falls back to the sport's speed cap. Deliberate for now: the fallback is generous, while reading a bare `device_type` as an ANT+ profile risks believing a device distance nothing vouched for — the mistake that would have trimmed the real 6.5 km Chabany run to 3.9 km. Becoming real needs a file from a watch that writes sensors that way, which nobody has yet.
+
+- source_spec: `spec-1-8-over-long-track.md`
+  summary: The track-length tolerance — a 200 m floor plus 2 % of the plausible distance — is a judgement nobody has checked against real files.
+  evidence: No planning document fixes either number. They were chosen between two measured scales: a declared footpod and a correctly drawn route disagree by a percent or two (65–200 m on a 6.5 km run, 1–2 km on a 100 km ride, neither of which may raise a blocking warning), while an extra lap in a route editor is hundreds of metres at least. The whole of Epic 1 runs on one synthetic course and one absent private pair, so the first real evidence arrives with the browser service of Epic 2. Worth a glance from Ілля: too low teaches the athlete to click through the one blocking warning that changes the result, and the floor also widens the finish-line budget in `Aligner.EndingAt`.
+
+- source_spec: `spec-1-8-over-long-track.md`
+  summary: The CLI signals an unconfirmed blocking warning with exit code 3 instead of withholding the file.
+  evidence: AD-22 gates the download on an explicit confirmation, which a command-line tool has nobody to ask for; the file is written and the exit code carries the gate instead. A script can act on it, but a person who ignores the warning text has a trimmed repair on disk that looks like any other. The real gate belongs to the browser service (Story 2.3 onwards), where there is a user to ask; whether the CLI should also grow a `--confirm`-style flag, or write to a temporary name until confirmed, is a product decision for Ілля rather than part of this story.

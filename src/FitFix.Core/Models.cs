@@ -8,6 +8,30 @@ public enum SportKind
     Other
 }
 
+/// <summary>
+/// Which of the two track lengths the repair ends on (AD-17): the part of the track the Original's
+/// own time makes plausible, or the whole thing. The decision belongs to the user and never to a
+/// heuristic, so a caller states it — and a caller that states nothing gets
+/// <see cref="Plausible"/>, which is this enum's zero value on purpose. A preview that opened with
+/// an inflated pace would already have told the athlete something flattering and false, and the
+/// mode that trusts the track is only reachable once somebody has been asked.
+/// </summary>
+public enum TrackLengthMode
+{
+    /// <summary>
+    /// End on the shorter of the two: the conservative length, taken whenever the track is longer
+    /// than the Original's time can plausibly cover.
+    /// </summary>
+    Plausible,
+
+    /// <summary>
+    /// End on the track's whole length, because the user has confirmed the track is right and
+    /// their GPS was bad from the start — something they know and the service cannot. The warning
+    /// stays in the report either way: confirming changes the result, it does not erase the fact.
+    /// </summary>
+    Full
+}
+
 /// <summary>Один record-запис Оригіналу: час, позиція (може бути відсутня) і сенсори.</summary>
 public sealed record ActivityRecord
 {
@@ -197,6 +221,31 @@ public sealed record OriginalActivity
 
     /// <summary>Дистанція, яку записав пристрій (те, що бачить користувач у Strava до виправлення).</summary>
     public double? RecordedDistance => Records.LastOrDefault(r => r.Distance is not null)?.Distance;
+
+    /// <summary>
+    /// The furthest the device's own odometer ever reached, m — the largest distance any record
+    /// carries, not the last one. A different question from <see cref="RecordedDistance"/>, which
+    /// is what the watch was showing when it stopped: a counter that resets mid-file, as a watch
+    /// restarted or a second session leaves it, ends on a few metres while having measured
+    /// kilometres. Only the furthest reading can bound the chosen track length (AD-17) — the last
+    /// one would trim the whole route to those metres.
+    /// </summary>
+    public double? LargestRecordedDistance => Records.Max(record => record.Distance);
+
+    /// <summary>
+    /// Whether the file declares a sensor that measures movement without a GPS fix — a footpod, a
+    /// wheel sensor or a power meter (AD-17). It decides one thing: whether
+    /// <see cref="RecordedDistance"/> may stand as the plausible distance the chosen track length
+    /// is bounded by. A speed the device derived from GPS is never such a source, because after
+    /// the failure it reads zero and the device's own distance freezes with it — believing that
+    /// would have trimmed the real 6.5 km of the Chabany case to the 3.9 km the watch froze at.
+    /// <para>
+    /// False is the honest default, and the safe one: a file that declares nothing has declared no
+    /// sensor, and the fallback — the sport's own speed cap over the moving time — is generous
+    /// rather than wrong.
+    /// </para>
+    /// </summary>
+    public bool DeclaresSpeedSensor { get; init; }
 
     public double SecondsFromStart(ActivityRecord record) => SecondsFromStart(record.Timestamp);
 

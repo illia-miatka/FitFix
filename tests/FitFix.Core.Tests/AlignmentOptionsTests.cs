@@ -71,6 +71,9 @@ public class AlignmentOptionsTests
         // One pipeline, one answer: the API will read the same files through the same root.
         Assert.Equal(byHand.Report.RepairedDistanceMeters, throughRoot.Report.RepairedDistanceMeters, 0.001);
         Assert.Equal(byHand.Report.TrackLengthMeters, throughRoot.Report.TrackLengthMeters, 0.001);
+        // And the same decision about how much of it to use: two paths that read one track and
+        // chose differently would be the disagreement AD-17 forbids.
+        Assert.Equal(byHand.Report.UsedTrackLengthMeters, throughRoot.Report.UsedTrackLengthMeters, 0.001);
         Assert.Equal(byHand.Report.AnchorCount, throughRoot.Report.AnchorCount);
         Assert.Equal(byHand.Report.MeasuredUntilSeconds, throughRoot.Report.MeasuredUntilSeconds, 0.001);
     }

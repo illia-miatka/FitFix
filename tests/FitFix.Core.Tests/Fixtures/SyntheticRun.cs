@@ -151,6 +151,38 @@ public sealed class SyntheticRun
     }
 
     /// <summary>
+    /// How many times the loop has to be drawn before the reference track runs past twice what the
+    /// run's own time makes plausible (AD-17): the running cap of 7 m/s over
+    /// <see cref="DurationSeconds"/> allows 15.1 km, and five laps of the 6.5 km course are
+    /// 32.7 km. Four laps would raise the warning too — this is the "twice too long" of the
+    /// architecture decision, not the smallest track that trips it.
+    /// </summary>
+    public const int LoopsPastTwiceThePlausibleDistance = 5;
+
+    /// <summary>
+    /// The same run, the same athlete and the same records, with the reference track drawn
+    /// <paramref name="times"/> times round the loop — the route editor's extra lap, taken far
+    /// enough to be caught (AD-17). The course closes on its own start, so the repetitions join
+    /// into one continuous track and the duplicate point at each seam is dropped by the track's
+    /// own de-duplication; the length is therefore <paramref name="times"/> times the loop's.
+    /// <para>
+    /// Only the track changes, so the Original's GPS still describes the first lap and every
+    /// anchor the untouched fixture finds is still found here.
+    /// </para>
+    /// </summary>
+    public SyntheticRun WithTrackDrawn(int times)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(times, 2);
+
+        return new SyntheticRun
+        {
+            TrackPoints = [.. Enumerable.Repeat(TrackPoints, times).SelectMany(points => points)],
+            TrueRouteLength = TrueRouteLength * times,
+            Original = Original
+        };
+    }
+
+    /// <summary>
     /// The same run with the athlete's own laps marked: one lap ending at each of
     /// <paramref name="secondsFromStart"/>, and a last lap running to the end of the activity —
     /// so three unequal laps are <c>WithLapsEndingAt(300, 1500)</c>. Only the lap intervals are
