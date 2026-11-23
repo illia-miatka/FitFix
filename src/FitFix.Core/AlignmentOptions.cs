@@ -67,10 +67,10 @@ public sealed record AlignmentOptions
     /// </summary>
     public double EstimatedZoneGapSeconds { get; init; } = 30;
 
-    /// <summary>Напівширина згладжування в Надійній зоні, с.</summary>
-    public double SmoothingSeconds { get; init; } = 15;
-
-    /// <summary>Напівширина згладжування в Розрахованій зоні, с.</summary>
+    /// <summary>
+    /// Напівширина згладжування в Розрахованій зоні, с. Only the estimated zones are smoothed:
+    /// a measured position is data rather than an estimate, so there is no width for one (AD-26).
+    /// </summary>
     public double EstimatedZoneSmoothingSeconds { get; init; } = 60;
 
     /// <summary>Радіус, у якому позиція вважається незмінною (детектор завислого GPS), м.</summary>

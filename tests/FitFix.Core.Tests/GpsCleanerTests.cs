@@ -45,11 +45,14 @@ public class GpsCleanerTests
         var withSpike = RepairService.Repair(spiked.Original, spiked.ReferenceTrack);
 
         // One position out of 2161 is gone from the alignment and nothing else changed, so the
-        // repair has to land on the same track length over the same measured zone.
-        Assert.Equal(
-            withoutSpike.Report.RepairedDistanceMeters,
-            withSpike.Report.RepairedDistanceMeters,
-            0.01);
+        // repair has to land on the same distance over the same measured zone — to within the two
+        // seconds that are now drawn from the track rather than from the watch, the discarded
+        // record having no position of its own left to measure between (AD-26). Both sources
+        // describe the same 3 m/s athlete, so the substitution is worth 0.06 m on this fixture and
+        // cannot be worth more than the metre the drifting error could differ by across them.
+        var moved = Math.Abs(
+            withoutSpike.Report.RepairedDistanceMeters - withSpike.Report.RepairedDistanceMeters);
+        Assert.InRange(moved, 0, 0.1);
         Assert.Equal(
             withoutSpike.Alignment.MeasuredUntilSeconds,
             withSpike.Alignment.MeasuredUntilSeconds,

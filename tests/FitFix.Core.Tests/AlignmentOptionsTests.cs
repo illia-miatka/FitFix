@@ -10,23 +10,46 @@ namespace FitFix.Core.Tests;
 /// <summary>
 /// AD-10: every tuning threshold lives in <see cref="AlignmentOptions"/> and no public core
 /// signature carries a default, so two entry points cannot silently disagree on the same files.
-/// The numbers pinned here are the ones the suite produced before the thresholds moved. They are
-/// internal rather than private because <see cref="PauseTests"/> asserts the very same three on
-/// the pause-free run: one number, one owner, so neither copy can be updated alone.
+/// The numbers pinned here are the ones the synthetic run produces today — re-derived by story
+/// 1.12, where the repaired distance stopped being the track's length and became a sum (AD-26).
+/// They are internal rather than private because <see cref="PauseTests"/> asserts the very same
+/// ones on the pause-free run: one number, one owner, so neither copy can be updated alone.
 /// </summary>
 public class AlignmentOptionsTests
 {
-    /// <summary>Repaired distance of the synthetic run before the thresholds moved, m.</summary>
-    internal const double ExpectedRepairedDistance = 6499.5036;
+    /// <summary>
+    /// Repaired distance of the synthetic run, m. A sum since story 1.12 and no longer the
+    /// track's length (AD-26): 3925.21 m measured along the watch's own positions over
+    /// [0, <see cref="ExpectedMeasuredUntil"/>] s, plus the 2614.22 m the track holds between the
+    /// anchor that ends the measured zone (3885.28 m along it) and its own end at 6499.50 m.
+    /// </summary>
+    internal const double ExpectedRepairedDistance = 6539.4331;
 
-    /// <summary>Anchor count of the synthetic run before the thresholds moved.</summary>
-    internal const int ExpectedAnchorCount = 1129;
+    /// <summary>
+    /// What the watch's own jitter adds over the measured zone of this fixture, m — the repaired
+    /// distance less the metres the estimated zones drew from the track. 1.03 % of the 3885.28 m
+    /// the anchors measured, inside the 1–3 % AD-26 budgets for real positions.
+    /// <para>
+    /// The same number whatever track the fixture is repaired against: the measured zone's
+    /// geometry is the watch's own, so the estimated zone is the only part a longer or trimmed
+    /// track moves. That is what lets every test below state its expected distance as the chosen
+    /// length plus this surplus rather than as a constant of its own.
+    /// </para>
+    /// </summary>
+    internal const double ExpectedMeasuredZoneSurplus = 39.9295;
 
-    /// <summary>Boundary of the measured zone of the synthetic run before the move, s.</summary>
+    /// <summary>
+    /// Anchor count of the synthetic run. Raised from 1129 by story 1.12, which gave the fixture
+    /// the drifting position error a real watch has: a fix that wanders a metre at a time is
+    /// accepted by the speed gate where white noise of the same amplitude was not.
+    /// </summary>
+    internal const int ExpectedAnchorCount = 1297;
+
+    /// <summary>Boundary of the measured zone of the synthetic run, s.</summary>
     internal const double ExpectedMeasuredUntil = 1295;
 
     [Fact]
-    public void The_defaults_reproduce_the_numbers_from_before_the_move()
+    public void The_defaults_reproduce_the_numbers_the_suite_pins()
     {
         var run = SyntheticRun.Create();
 
@@ -36,6 +59,13 @@ public class AlignmentOptionsTests
         Assert.Equal(SyntheticRun.DurationSeconds, result.Report.ElapsedSeconds, 0.001);
         Assert.Equal(ExpectedAnchorCount, result.Report.AnchorCount);
         Assert.Equal(ExpectedMeasuredUntil, result.Alignment.MeasuredUntilSeconds, 0.001);
+
+        // And the sum is the sum of its two halves (AD-26): the whole track is what the estimated
+        // zone drew from it, and the surplus is what the measured zone's own positions added.
+        Assert.Equal(
+            result.Report.UsedTrackLengthMeters + ExpectedMeasuredZoneSurplus,
+            result.Report.RepairedDistanceMeters,
+            0.01);
     }
 
     [Fact]
@@ -168,9 +198,13 @@ public class AlignmentOptionsTests
             .Repair(run.Original, track, SyntheticRun.Options with { SpeedWindowHalfWidthRecords = 60 })
             .Records.Select(r => r.Speed).ToArray();
 
-        // The series has to describe the athlete first (SM-1).
+        // The series has to describe the athlete first (SM-1) — on average, and record by record
+        // only once the window is wide. Since story 1.12 a measured second carries the watch's own
+        // position error instead of a smoothed estimate (AD-26), so the default window's records
+        // wander past a tenth of the athlete's speed in either direction while their mean does
+        // not. Averaging that error away is exactly what the wide window is for.
         Assert.Equal(SyntheticRun.SpeedMetersPerSecond, withDefaults.Average(), SyntheticRun.SpeedMetersPerSecond * 0.02);
-        Assert.All(withDefaults, speed =>
+        Assert.All(wide, speed =>
             Assert.Equal(SyntheticRun.SpeedMetersPerSecond, speed, SyntheticRun.SpeedMetersPerSecond * 0.1));
 
         // A window twenty times wider averages the GPS jitter away, so the two series differ.

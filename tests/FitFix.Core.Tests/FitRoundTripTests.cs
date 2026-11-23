@@ -40,7 +40,14 @@ public class FitRoundTripTests
         Assert.Equal(result.Records[^1].Distance, reread.Records[^1].Distance!.Value, 1.0);
         Assert.Equal(result.Records[0].HeartRate, reread.Records[0].HeartRate);
         Assert.Equal(SportKind.Running, reread.Sport);
-        Assert.Equal(track.Length, reread.Records[^1].Distance!.Value, track.Length * 0.005);
+
+        // The file states the repaired distance, which is a sum of the two sources and sits a
+        // little past the track's own length (AD-26) — the writer transcribes it rather than
+        // ending the series on the track (AD-16).
+        Assert.Equal(
+            track.Length + AlignmentOptionsTests.ExpectedMeasuredZoneSurplus,
+            reread.Records[^1].Distance!.Value,
+            0.01);
     }
 
     [Theory]

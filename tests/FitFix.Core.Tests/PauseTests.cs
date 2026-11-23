@@ -413,8 +413,12 @@ public class PauseTests
                 result.Records[i].Distance >= result.Records[i - 1].Distance,
                 $"distance fell at record {i}: {result.Records[i - 1].Distance} → {result.Records[i].Distance}");
 
-        // AD-8: and it still ends exactly on the chosen track length.
-        Assert.Equal(track.Length, result.Records[^1].Distance, 0.001);
+        // AD-8 keeps the monotonicity; AD-26 took the pinned finish away, so the last record is
+        // the sum the two sources came to. This fixture's GPS never fails, so almost all of it is
+        // measured along the watch's own positions: 40.71 m — 0.63 % — past the 6499.50 m of track
+        // the estimated tail drew, which is the accepted price of real data.
+        Assert.Equal(track.Length + 40.7056, result.Records[^1].Distance, 0.01);
+        Assert.Equal(result.Report.RepairedDistanceMeters, result.Records[^1].Distance, 1e-9);
     }
 
     [Fact]
