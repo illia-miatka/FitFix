@@ -11,6 +11,8 @@
  * configuration.
  */
 
+import { worthRepeating } from './failure';
+
 /** The route, spelled as `FitFix.Api.InspectEndpoint.Route` spells it. */
 const route = '/api/inspect';
 
@@ -53,14 +55,22 @@ export type Inspection = OriginalInspection | TrackInspection;
 
 /**
  * What one ask can come back as. The three are different things to say to a person, which is
- * why `unreachable` is not a refusal: a 400 with a code means this file is not what the zone
- * wants, and the dictionary has the sentence for it; a request that never arrived says nothing
- * at all about the file, and calling it bad would send somebody hunting for a problem that is
- * not theirs.
+ * why `unreachable` is not a refusal: a failure with a code means the service answered and the
+ * dictionary has the sentence for it; a request that never arrived says nothing at all about the
+ * file, and calling it bad would send somebody hunting for a problem that is not theirs.
  */
 export type InspectOutcome<T extends Inspection = Inspection> =
   | { readonly status: 'described'; readonly inspection: T }
-  | { readonly status: 'refused'; readonly code: string }
+  | {
+      readonly status: 'refused';
+      readonly code: string;
+      /**
+       * Whether asking again could end differently. A 400 is about these bytes and never will
+       * (`worthRepeating`), and a 500 is our invariant breaking on a file the service accepted —
+       * so the status travels this far rather than being discarded at the fetch.
+       */
+      readonly worthRepeating: boolean;
+    }
   | { readonly status: 'unreachable' };
 
 /** The inspection of a file offered as the original. */
@@ -97,7 +107,9 @@ async function inspect<T extends Inspection>(
     // A body without one is not a refusal this interface can state, so it is not dressed up
     // as one — the dictionary would have nothing to look up.
     const { code } = payload;
-    return typeof code === 'string' ? { status: 'refused', code } : { status: 'unreachable' };
+    return typeof code === 'string'
+      ? { status: 'refused', code, worthRepeating: worthRepeating(response.status, code) }
+      : { status: 'unreachable' };
   }
 
   // The answer repeats the role it was asked about, and that member is what discriminates the

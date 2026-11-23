@@ -98,6 +98,21 @@ const unreachable = 'Не вдалося звернутися до сервіс�
 /** The watch recorded no distance, which is not the same claim as zero metres. */
 const noRecordedDistance = 'Годинник не записав дистанцію';
 
+/**
+ * What a failure reads as when the dictionary has no sentence of its own for it, and the words of
+ * the attempt that follows. Said in one voice wherever a failure appears, which is why `errors.ts`
+ * reads `unexpected` from here and no component writes its own version of it.
+ *
+ * An unregistered code is our bug and not the person's, so the sentence says what to do rather
+ * than naming the code — the code travels in `data-code`, where support can read it (Story 2.7).
+ */
+const errors = {
+  /** A code `codeTexts` does not know. The code itself never reaches the sentence. */
+  unexpected: 'Щось пішло не так. Онови сторінку й спробуй ще раз, а якщо повториться — напиши нам.',
+  /** The attempt offered beside a request that never arrived (EXPERIENCE.md, State Patterns). */
+  retry: 'Спробувати ще',
+} as const;
+
 export const uk = {
   hero: {
     title: 'Пробіжка з битим GPS? Полагодимо.',
@@ -211,7 +226,12 @@ export const uk = {
 
     download: 'Завантажити FIT',
     startAgain: 'Почати знову',
+    /** The row EXPERIENCE.md asks for beside the download: disabled, and saying why (Epic 4). */
+    strava: 'Залити у Strava — незабаром',
   },
+
+  /** What a failure reads as, and the attempt beside it. Shared by the zones and the repair. */
+  errors,
 
   /** The units `format.ts` writes a number in. */
   units,

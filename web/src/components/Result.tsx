@@ -1,4 +1,6 @@
 import type { RepairReport, RepairWarning } from '../api/repair';
+// The one place a code becomes a sentence (Story 2.7).
+import { codeText } from '../errors';
 import { duration, kilometres, pace } from '../format';
 
 /** `uk.result` — every string of this screen. No component here holds a literal (AD-18). */
@@ -15,6 +17,7 @@ export interface ResultTexts {
   readonly info: string;
   readonly download: string;
   readonly startAgain: string;
+  readonly strava: string;
 }
 
 /** `uk.units` — what a distance and a pace are written in. */
@@ -119,6 +122,16 @@ export function Result({
         >
           {texts.startAgain}
         </button>
+        {/* EXPERIENCE.md's Result state: the upload is its own epic, and the row says so in its
+            own label rather than in a tooltip a touch screen cannot show. Genuinely `disabled`,
+            not merely styled so — a control that looks dead and still fires is worse than both. */}
+        <button
+          type="button"
+          disabled
+          className="rounded-pill border border-border bg-surface px-6 py-3 text-text-muted disabled:cursor-not-allowed"
+        >
+          {texts.strava}
+        </button>
       </div>
     </div>
   );
@@ -139,6 +152,7 @@ function Callout({
   readonly codes: Readonly<Record<string, string>>;
 }) {
   const blocking = warning.severity === 'blocking';
+  const said = codeText(codes, warning.code);
   return (
     <li
       className={`rounded-md border-l-4 bg-surface p-gutter ${
@@ -148,9 +162,11 @@ function Callout({
       <p className={`type-display text-sm ${blocking ? 'text-danger' : 'text-estimated'}`}>
         {blocking ? texts.blocking : texts.info}
       </p>
-      {/* The sentence for the code, and the code itself if the dictionary somehow lacks it: a
-          callout that said nothing would be worse than a raw code. */}
-      <p className="mt-2 text-sm text-text">{codes[warning.code] ?? warning.code}</p>
+      {/* The sentence for the code. One the dictionary has no sentence for still reads as a
+          sentence, and the severity above is unchanged by it: the code travels in `data-code`. */}
+      <p data-code={said.code ?? undefined} className="mt-2 text-sm text-text">
+        {said.text}
+      </p>
     </li>
   );
 }

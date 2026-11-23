@@ -66,6 +66,7 @@ function Zone({ role }: { readonly role: 'original' | 'track' }) {
         texts={role === 'original' ? uk.dropzones.original : uk.dropzones.track}
         inspection={uk.inspection}
         clearLabel={uk.dropzones.clear}
+        retryLabel={uk.errors.retry}
         codes={uk.codes}
         file={file}
         onFileChange={setFile}
@@ -206,14 +207,93 @@ describe('a file the service refuses', () => {
     expect(screen.getByRole('button', { name: uk.dropzones.clear })).toBeInTheDocument();
   });
 
-  it('shows the code itself when the dictionary somehow lacks it', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(answers({ code: 'A_CODE_FROM_THE_FUTURE' }, 400)));
+  it('offers no retry at 400: the same bytes would meet the same code', async () => {
+    const fetched = vi.fn().mockResolvedValue(answers({ code: 'NOT_A_FIT_FILE' }, 400));
+    vi.stubGlobal('fetch', fetched);
 
     render(<Zone role="original" />);
+    await choose('original', someFile('photo.jpg'));
+    await screen.findByText(uk.codes.NOT_A_FIT_FILE);
+
+    expect(screen.queryByRole('button', { name: uk.errors.retry })).not.toBeInTheDocument();
+    expect(fetched).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers the attempt when the failure was ours, and pressing it re-asks', async () => {
+    // `FailureStatus` serves our own broken invariants at 500 while keeping their code, exactly
+    // so the athlete is not told their file is wrong — and the dictionary's text for one of
+    // those ends in «Спробуй ще раз», which is a promise only an attempt can keep.
+    const fetched = vi
+      .fn()
+      .mockResolvedValueOnce(answers({ code: 'INTERNAL_ERROR' }, 500))
+      .mockResolvedValueOnce(answers(aTrack));
+    vi.stubGlobal('fetch', fetched);
+
+    render(<Zone role="track" />);
+    await choose('track', someFile('route.gpx'));
+
+    expect(await screen.findByText(uk.codes.INTERNAL_ERROR)).toBeInTheDocument();
+    expect(accepted()).toBe('false');
+
+    await userEvent.click(screen.getByRole('button', { name: uk.errors.retry }));
+
+    expect(await screen.findByText(`6,54 ${uk.inspection.kilometres}`)).toBeInTheDocument();
+    expect(fetched).toHaveBeenCalledTimes(2);
+    expect(((fetched.mock.calls[1]![1] as RequestInit).body as FormData).get('role')).toBe('track');
+    expect(accepted()).toBe('true');
+  });
+
+  it('offers the attempt when the upload itself was cut short, though that is a 400', async () => {
+    // `FailureStatus.ForStatus` answers every unnamed sub-500 status with `REQUEST_MALFORMED`, so
+    // a truncated upload arrives as a 400 whose file is intact: the journey broke, not the bytes,
+    // and its own sentence ends in «Спробуй ще раз».
+    const fetched = vi
+      .fn()
+      .mockResolvedValueOnce(answers({ code: 'REQUEST_MALFORMED' }, 400))
+      .mockResolvedValueOnce(answers(aTrack));
+    vi.stubGlobal('fetch', fetched);
+
+    render(<Zone role="track" />);
+    await choose('track', someFile('route.gpx'));
+
+    expect(await screen.findByText(uk.codes.REQUEST_MALFORMED)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: uk.errors.retry }));
+
+    expect(await screen.findByText(`6,54 ${uk.inspection.kilometres}`)).toBeInTheDocument();
+    expect(fetched).toHaveBeenCalledTimes(2);
+    expect(accepted()).toBe('true');
+  });
+
+  it('reads as the generic sentence when the dictionary lacks the code, keeping it in the DOM', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(answers({ code: 'A_CODE_FROM_THE_FUTURE' }, 400)));
+
+    const { container } = render(<Zone role="original" />);
     await choose('original', someFile('activity.fit'));
 
-    expect(await screen.findByText('A_CODE_FROM_THE_FUTURE')).toBeInTheDocument();
+    // A code DESIGN.md forbids on the screen is on nobody's screen — and still reaches whoever
+    // gets the bug report, through the attribute (Story 2.7).
+    expect(await screen.findByText(uk.errors.unexpected)).toBeInTheDocument();
+    expect(screen.queryByText('A_CODE_FROM_THE_FUTURE')).not.toBeInTheDocument();
+    expect(screen.getByRole('status').textContent).not.toContain('A_CODE_FROM_THE_FUTURE');
+    expect(container.querySelector('[data-code="A_CODE_FROM_THE_FUTURE"]')).not.toBeNull();
     expect(accepted()).toBe('false');
+  });
+
+  it('says a warning of the file in words, and an unregistered one generically', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(answers({ ...anOriginal, codes: ['NOT_A_CODE_WE_KNOW'] })),
+    );
+
+    const { container } = render(<Zone role="original" />);
+    await choose('original', someFile('activity.fit'));
+
+    // Accepted, so this is a remark and not a refusal: the generic sentence, severity unchanged.
+    expect(await screen.findByText(uk.errors.unexpected)).toBeInTheDocument();
+    expect(container.querySelector('[data-code="NOT_A_CODE_WE_KNOW"]')).not.toBeNull();
+    expect(screen.queryByText('NOT_A_CODE_WE_KNOW')).not.toBeInTheDocument();
+    expect(accepted()).toBe('true');
   });
 });
 
@@ -228,6 +308,118 @@ describe('when the service cannot be reached', () => {
     expect(accepted()).toBe('false');
     // Not a refusal: none of the file's own codes may appear here.
     expect(screen.getByRole('status')).not.toHaveTextContent(uk.codes.NOT_A_FIT_FILE);
+  });
+
+  it('offers the attempt, and pressing it asks about the same file again', async () => {
+    const fetched = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce(answers(aTrack));
+    vi.stubGlobal('fetch', fetched);
+
+    render(<Zone role="track" />);
+    await choose('track', someFile('route.gpx'));
+    await screen.findByText(uk.inspection.unreachable);
+
+    await userEvent.click(screen.getByRole('button', { name: uk.errors.retry }));
+
+    // The second ask is about the file the zone is still holding: no second drop, same bytes,
+    // same role — and this time the service answers.
+    expect(await screen.findByText(`6,54 ${uk.inspection.kilometres}`)).toBeInTheDocument();
+    expect(fetched).toHaveBeenCalledTimes(2);
+    const [url, request] = fetched.mock.calls[1] as [string, RequestInit];
+    expect(url).toBe('/api/inspect');
+    expect((request.body as FormData).get('role')).toBe('track');
+    expect(((request.body as FormData).get('file') as File).name).toBe('route.gpx');
+    expect(accepted()).toBe('true');
+    expect(screen.queryByRole('button', { name: uk.errors.retry })).not.toBeInTheDocument();
+  });
+
+  it('leaves the attempt in place when the second ask fails too', async () => {
+    const fetched = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'));
+    vi.stubGlobal('fetch', fetched);
+
+    render(<Zone role="original" />);
+    await choose('original', someFile('activity.fit'));
+    await screen.findByText(uk.inspection.unreachable);
+
+    await userEvent.click(screen.getByRole('button', { name: uk.errors.retry }));
+
+    await waitFor(() => expect(fetched).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText(uk.inspection.unreachable)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: uk.errors.retry })).toBeInTheDocument();
+    expect(accepted()).toBe('false');
+  });
+
+  it('asks once per press, and the answer shown is the attempt in flight', async () => {
+    let answerSecond: (answer: Response) => void = () => {};
+    const fetched = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockReturnValueOnce(
+        new Promise<Response>((resolve) => {
+          answerSecond = resolve;
+        }),
+      );
+    vi.stubGlobal('fetch', fetched);
+
+    render(<Zone role="track" />);
+    await choose('track', someFile('route.gpx'));
+    await screen.findByText(uk.inspection.unreachable);
+
+    await userEvent.click(screen.getByRole('button', { name: uk.errors.retry }));
+
+    // The attempt replaces the failure with the skeleton, which is also what takes the button
+    // away: a second press cannot reach it while the answer is in flight.
+    expect(await screen.findByText(uk.inspection.reading)).toBeInTheDocument();
+    expect(screen.queryByText(uk.inspection.unreachable)).not.toBeInTheDocument();
+    expect(fetched).toHaveBeenCalledTimes(2);
+
+    answerSecond(answers(aTrack));
+    expect(await screen.findByText(`6,54 ${uk.inspection.kilometres}`)).toBeInTheDocument();
+  });
+
+  it('cannot have a repeated ask overwrite the file dropped while it was out', async () => {
+    let answerRetry: (answer: Response) => void = () => {};
+    const fetched = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockReturnValueOnce(
+        new Promise<Response>((resolve) => {
+          answerRetry = resolve;
+        }),
+      )
+      .mockResolvedValueOnce(answers({ ...aTrack, lengthMeters: 10400 }));
+    vi.stubGlobal('fetch', fetched);
+
+    render(<Zone role="track" />);
+    await choose('track', someFile('wrong.gpx'));
+    await screen.findByText(uk.inspection.unreachable);
+    await userEvent.click(screen.getByRole('button', { name: uk.errors.retry }));
+
+    // The right file arrives before the repeated ask about the wrong one answers.
+    await choose('track', someFile('right.gpx'));
+    await screen.findByText(`10,40 ${uk.inspection.kilometres}`);
+    answerRetry(answers(aTrack));
+    await waitFor(() => expect(fetched).toHaveBeenCalledTimes(3));
+
+    expect(screen.getByRole('status')).toHaveTextContent('right.gpx');
+    expect(screen.queryByText(`6,54 ${uk.inspection.kilometres}`)).not.toBeInTheDocument();
+  });
+
+  it('takes the attempt away with the file when the zone is cleared', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
+
+    render(<Zone role="track" />);
+    await choose('track', someFile('route.gpx'));
+    await screen.findByText(uk.inspection.unreachable);
+
+    await userEvent.click(screen.getByRole('button', { name: uk.dropzones.clear }));
+
+    expect(screen.queryByText(uk.inspection.unreachable)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: uk.errors.retry })).not.toBeInTheDocument();
+    expect(screen.getByText(new RegExp(uk.dropzones.track.prompt))).toBeInTheDocument();
+    expect(accepted()).toBe('false');
   });
 });
 

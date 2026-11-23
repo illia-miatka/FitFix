@@ -1,8 +1,11 @@
-import { useEffect, useId, useRef, useState } from 'react';
-import type { DragEvent, ReactNode } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import type { DragEvent } from 'react';
 
 import type { InspectOutcome, OriginalInspection, TrackInspection } from '../api/inspect';
 import { inspectOriginal, inspectTrack } from '../api/inspect';
+// The one place a code becomes a sentence, and the one shape a failure is said in (Story 2.7).
+import { codeText } from '../errors';
+import { Notice } from './Notice';
 // The one place a metre or a second becomes a string (AD-14): a zone and the result screen must
 // not be able to write the same distance two ways.
 import { dateTime, duration, kilometres } from '../format';
@@ -39,6 +42,11 @@ export interface DropzoneProps {
   readonly inspection: InspectionTexts;
   /** `uk.dropzones.clear` — the label of the × that empties the zone. */
   readonly clearLabel: string;
+  /**
+   * `uk.errors.retry` — the attempt offered when the inspection never arrived. It comes from the
+   * shared `errors` rather than from `uk.inspection`, because the repair offers the same words.
+   */
+  readonly retryLabel: string;
   /** `uk.codes` — a refusal's sentence, keyed by the code the service returned (AD-18). */
   readonly codes: Readonly<Record<string, string>>;
   readonly file: File | null;
@@ -71,6 +79,7 @@ export function Dropzone({
   texts,
   inspection,
   clearLabel,
+  retryLabel,
   codes,
   file,
   onFileChange,
@@ -82,6 +91,13 @@ export function Dropzone({
   const input = useRef<HTMLInputElement>(null);
   const [isDraggedOver, setIsDraggedOver] = useState(false);
   const [state, setState] = useState<ZoneState>({ status: 'empty' });
+
+  // Which attempt at this file the zone is on. A retry asks about the file already in the zone,
+  // and that object does not change, so the ask is keyed on this counter as well: without it the
+  // effect below has no reason to run a second time. It is never reset — a new file arrives with
+  // its own identity, and the number only has to differ from the last one.
+  const [attempt, setAttempt] = useState(0);
+  const retry = useCallback(() => setAttempt((previous) => previous + 1), []);
 
   useEffect(() => {
     if (file === null) {
@@ -109,7 +125,7 @@ export function Dropzone({
     return () => {
       holds = false;
     };
-  }, [file, role, onAcceptedChange]);
+  }, [file, role, attempt, onAcceptedChange]);
 
   function take(files: FileList | null) {
     const first = files?.[0];
@@ -162,10 +178,23 @@ export function Dropzone({
             codes={codes}
           />
         )}
-        {/* The dictionary's sentence for the code, and the code itself if the dictionary
-            somehow lacks it: a zone that said nothing would be worse than a raw code. */}
-        {state.status === 'refused' && <Refusal>{codes[state.code] ?? state.code}</Refusal>}
-        {state.status === 'unreachable' && <Refusal>{inspection.unreachable}</Refusal>}
+        {/* A 400 is about these bytes, so it is stated and not offered again: the same file would
+            meet the same code, and the way out is the «обрати інший» the card already is. A
+            failure of ours (500, and still carrying its code) is worth one more press. */}
+        {state.status === 'refused' && (
+          <Notice
+            {...codeText(codes, state.code)}
+            retry={state.worthRepeating ? { label: retryLabel, onPress: retry } : undefined}
+          />
+        )}
+        {/* A request that never arrived says nothing about the file, so this one is worth
+            repeating — and repeating it is one press rather than another drop. */}
+        {state.status === 'unreachable' && (
+          <Notice
+            text={inspection.unreachable}
+            retry={{ label: retryLabel, onPress: retry }}
+          />
+        )}
       </div>
 
       {/* Outside the button rather than inside it: one control may not contain another. */}
@@ -206,14 +235,6 @@ function Reading({ label }: { readonly label: string }) {
   );
 }
 
-function Refusal({ children }: { readonly children: ReactNode }) {
-  return (
-    <p className="rounded-md border border-border bg-surface p-gutter text-sm text-danger">
-      {children}
-    </p>
-  );
-}
-
 /**
  * What the service understood, and the file's own name beside it. Which quantities those are
  * follows from the answer's `role`, which is the member that discriminates the two shapes.
@@ -240,11 +261,17 @@ function Described({
       {/* What the repair would say about this file, from the same dictionary the result screen
           reads (AD-18) — not prose this component invents from the numbers above. */}
       {inspection.role === 'original' &&
-        inspection.codes.map((code) => (
-          <p key={code} className="mt-3 text-sm text-estimated">
-            {codes[code] ?? code}
-          </p>
-        ))}
+        inspection.codes.map((code) => {
+          // Not a failure and not a `Notice`: the file was accepted, and this is what the repair
+          // would remark about it. One code the dictionary has no sentence for still reads as a
+          // sentence, with the code itself only in `data-code` (Story 2.7).
+          const said = codeText(codes, code);
+          return (
+            <p key={code} data-code={said.code ?? undefined} className="mt-3 text-sm text-estimated">
+              {said.text}
+            </p>
+          );
+        })}
     </div>
   );
 }
