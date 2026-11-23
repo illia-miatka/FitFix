@@ -102,8 +102,38 @@ export const uk = {
       prompt: 'Перетягни файл або натисни, щоб обрати',
       pick: 'Обрати еталонний трек: FIT, GPX або TCX з правильним маршрутом',
     },
-    /** Shown once a file is in the zone; Story 2.5 adds what the service understood about it. */
+    /** Shown once a file is in the zone, beside what the service understood about it. */
     clear: 'Прибрати файл',
+  },
+
+  /**
+   * What a zone says about the file it was given (Story 2.5). Shared by both zones on purpose:
+   * these label the service's answer, and a label that existed twice would let the two zones
+   * name one quantity differently. The role-specific words stay in `dropzones` above.
+   */
+  inspection: {
+    /** While `/api/inspect` is being asked. */
+    reading: 'Читаємо файл…',
+    /** The bottom line of a zone that already holds a file — and the way out of a refusal. */
+    another: 'Обрати інший файл',
+    /** The request never arrived. About the service, never about the file (see `codes`). */
+    unreachable: 'Не вдалося звернутися до сервісу. Перевір зв’язок і спробуй ще раз.',
+
+    // --- The original's own quantities.
+    startedAt: 'Початок',
+    duration: 'Тривалість',
+    recordedDistance: 'Дистанція на годиннику',
+    /** `recordedDistanceMeters` is null: the device measured nothing, which is not zero. */
+    noDistance: 'Годинник не записав дистанцію',
+
+    // --- The track's.
+    length: 'Довжина треку',
+    points: 'Точок у треку',
+    format: 'Формат',
+
+    /** The units and the separator a number is written with here. */
+    kilometres: 'км',
+    decimalSeparator: ',',
   },
 
   howItWorks: {
