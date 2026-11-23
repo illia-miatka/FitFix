@@ -88,3 +88,56 @@ jobs:
       - name: Test
         run: npm run test
         working-directory: web
+
+  # Story 2.8. The two jobs above build the halves; this one builds what ships. Without it the
+  # image is the only part of the service nothing checks: lose the COPY that puts the page in
+  # wwwroot and every navigation answers ROUTE_NOT_FOUND while all 348 tests and both jobs
+  # above stay green, because each of them verifies its half in isolation.
+  image:
+    name: Build and smoke-test the image
+    runs-on: ubuntu-latest
+    # The build dominates: two SDK stages from scratch on a cold cache.
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+
+      - name: Build the image
+        run: docker build --tag fitfix .
+
+      - name: Start it as the compose file does
+        run: docker run --detach --name fitfix --publish 8080:8080 --read-only --tmpfs /tmp fitfix
+
+      - name: Wait for the image's own healthcheck
+        run: |
+          for _ in $(seq 1 30); do
+            if [ "$(docker inspect --format '{{.State.Health.Status}}' fitfix)" = healthy ]; then exit 0; fi
+            sleep 2
+          done
+          docker logs fitfix
+          exit 1
+
+      - name: The page, a deep link, and the API's own refusal beside them
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error localhost:8080/health | grep -q '"status":"ok"'
+          # One origin (AD-12): the page answers an unknown path, and /api never does.
+          curl --fail --silent --output /dev/null --write-out '%{content_type}' localhost:8080/ | grep -q text/html
+          curl --fail --silent --output /dev/null --write-out '%{content_type}' localhost:8080/result | grep -q text/html
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' localhost:8080/api/nonsense)" = 404
+          curl --silent localhost:8080/api/nonsense | grep -q ROUTE_NOT_FOUND
+
+      - name: Unprivileged, on a filesystem it cannot write
+        run: |
+          set -euo pipefail
+          test "$(docker exec fitfix id -u)" -ne 0
+          # The refusal is captured rather than piped: touch exits 1 when it is refused, which
+          # is the point, and under `pipefail` that failure would sink the whole pipeline even
+          # though grep found exactly what this step is looking for.
+          refusal=$(docker exec fitfix sh -c 'touch /app/written 2>&1; true')
+          printf '%s\n' "$refusal" | grep -q 'Read-only file system'
+
+      - name: Stop it
+        if: always()
+        run: docker rm --force fitfix

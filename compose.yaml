@@ -1,0 +1,29 @@
+# Story 2.8: `docker compose up`, then localhost:8080 — the whole command.
+
+services:
+  fitfix:
+    build: .
+    image: fitfix
+    ports:
+      # The same number on both sides, so the URL in the README is the URL the service logs.
+      - "8080:8080"
+
+    # AD-3 and AD-11, enforced rather than intended: an uploaded file is held in memory,
+    # because MemoryBufferThreshold is the whole upload bound, and nothing of a repair is
+    # kept. A filesystem that cannot be written is what turns a regression in either of those
+    # into a crash instead of a quiet temporary file. There is no volume for the same reason:
+    # the service carries nothing from one request to the next.
+    read_only: true
+    tmpfs:
+      # The runtime may want somewhere of its own. Nothing of ours goes here, and it leaves
+      # with the container.
+      - /tmp
+
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      # The upload bound is 20 MB by default (AD-13). A deployment that wants another one
+      # sets it here and nowhere else.
+      # FITFIX_MAX_UPLOAD_BYTES: "20971520"
+
+    # The healthcheck is the image's own: it knows its port and carries the wget to use it,
+    # so there is nothing to repeat here.
