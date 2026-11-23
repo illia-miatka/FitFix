@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -12,38 +12,115 @@ function fitFile(name: string) {
   });
 }
 
+/** One answer. The client reads `ok`, `status` and `json()`, and nothing else has to exist. */
+function answers(payload: unknown, status = 200) {
+  return { ok: status >= 200 && status < 300, status, json: async () => payload } as Response;
+}
+
+const anOriginal = {
+  role: 'original',
+  sport: 'running',
+  startedAt: '2026-11-19T07:12:03Z',
+  elapsedSeconds: 2162,
+  recordedDistanceMeters: 3911,
+  recordCount: 2163,
+  hasPosition: true,
+  discardedPositionCount: 0,
+  codes: [],
+};
+
+const aTrack = {
+  role: 'track',
+  lengthMeters: 6537.4,
+  pointCount: 1248,
+  format: 'gpx',
+  hasAltitude: true,
+};
+
+/** The 19.11.2026 case, trimmed to what this screen reads. `Result.test.tsx` has the full one. */
+const aReport = {
+  before: {
+    sport: 'running',
+    startedAt: '2026-11-19T07:12:03Z',
+    recordCount: 2163,
+    recordedDistanceMeters: 3911,
+    discardedPositionCount: 0,
+  },
+  after: {
+    distanceMeters: 6537.4,
+    elapsedSeconds: 2162,
+    movingSeconds: 2162,
+    pausedSeconds: 0,
+    averageSpeedMetersPerSecond: 3.024,
+    maximumSpeedMetersPerSecond: 4.1,
+    averageHeartRate: 154,
+    maximumHeartRate: 171,
+    averagePower: null,
+    maximumPower: null,
+    averageCadence: 84,
+    maximumCadence: 96,
+    elevationGainMeters: 41,
+    elevationLossMeters: 39,
+    lapCount: 1,
+  },
+  track: { lengthMeters: 6537.4, usedLengthMeters: 6537.4 },
+  zones: [{ kind: 'measured', fromSeconds: 0, toSeconds: 2162 }],
+  series: {
+    secondsFromStart: [0, 1],
+    original: {
+      latitude: [50.3333, null],
+      longitude: [30.3833, null],
+      distanceMeters: [0, null],
+      speedMetersPerSecond: [3, null],
+    },
+    repaired: {
+      latitude: [50.3333, 50.3334],
+      longitude: [30.3833, 30.3834],
+      altitudeMeters: [182.8, 182.9],
+      distanceMeters: [0, 3],
+      speedMetersPerSecond: [3, 3],
+      heartRate: [150, 151],
+      power: [null, null],
+      cadence: [85, 85],
+      temperatureCelsius: [4, 4],
+    },
+  },
+  warnings: [],
+  fitBase64: 'RklUAQID',
+};
+
 /**
- * The service, stubbed: each zone asks `/api/inspect` about its own file (Story 2.5), so the
- * page cannot be driven without an answer. The role is read back out of the request, which is
- * what makes one stub serve both zones. `Dropzone.test.tsx` covers the states themselves; what
- * is checked here is the one place the two zones meet.
+ * The service, stubbed: each zone asks `/api/inspect` about its own file (Story 2.5) and the
+ * button asks `/api/repair` for both (Story 2.6), so the page cannot be driven without answers.
+ * The role is read back out of the inspect request, which is what makes one stub serve both
+ * zones. `Dropzone.test.tsx` and `Result.test.tsx` cover the states themselves; what is checked
+ * here is the one place the two zones and the repair meet.
+ *
+ * @param repair What the repair answers, or nothing when a test must not reach it at all.
  */
-function serviceDescribesEverything() {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async (_url: string, request: RequestInit) => {
-      const role = (request.body as FormData).get('role');
-      const payload =
-        role === 'original'
-          ? {
-              role: 'original',
-              sport: 'running',
-              startedAt: '2026-11-19T07:12:03Z',
-              elapsedSeconds: 2162,
-              recordedDistanceMeters: 3911,
-              recordCount: 2163,
-              hasPosition: true,
-              discardedPositionCount: 0,
-              codes: [],
-            }
-          : { role: 'track', lengthMeters: 6537.4, pointCount: 1248, format: 'gpx', hasAltitude: true };
-      return { ok: true, status: 200, json: async () => payload } as Response;
-    }),
-  );
+function serviceDescribesEverything(
+  repair?: (request: RequestInit) => Response | Promise<Response>,
+) {
+  const fetched = vi.fn(async (url: string, request: RequestInit) => {
+    if (url === '/api/repair') {
+      if (repair === undefined) throw new Error(`No repair was expected: ${url}`);
+      return repair(request);
+    }
+    const role = (request.body as FormData).get('role');
+    return answers(role === 'original' ? anOriginal : aTrack);
+  });
+  vi.stubGlobal('fetch', fetched);
+  return fetched;
+}
+
+/** How many times the repair was asked for, whatever else the page asked about. */
+function repairCalls(fetched: ReturnType<typeof serviceDescribesEverything>) {
+  return fetched.mock.calls.filter(([url]) => url === '/api/repair').length;
 }
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 /**
@@ -138,26 +215,8 @@ describe('the repair button', () => {
       vi.fn(async (_url: string, request: RequestInit) => {
         const role = (request.body as FormData).get('role');
         return role === 'track'
-          ? ({
-              ok: false,
-              status: 400,
-              json: async () => ({ code: 'TRACK_FORMAT_UNKNOWN' }),
-            } as Response)
-          : ({
-              ok: true,
-              status: 200,
-              json: async () => ({
-                role: 'original',
-                sport: 'running',
-                startedAt: '2026-11-19T07:12:03Z',
-                elapsedSeconds: 2162,
-                recordedDistanceMeters: 3911,
-                recordCount: 2163,
-                hasPosition: true,
-                discardedPositionCount: 0,
-                codes: [],
-              }),
-            } as Response);
+          ? answers({ code: 'TRACK_FORMAT_UNKNOWN' }, 400)
+          : answers(anOriginal);
       }),
     );
     render(<App />);
@@ -195,5 +254,134 @@ describe('the repair button', () => {
     expect(screen.getAllByText(/Перетягни файл/)).toHaveLength(1);
     expect(screen.getAllByRole('button', { name: uk.dropzones.clear })).toHaveLength(1);
     expect(screen.queryByText(uk.inspection.length)).not.toBeInTheDocument();
+  });
+});
+
+describe('pressing the button', () => {
+  const repair = () => screen.getByRole('button', { name: uk.repair.action });
+
+  /** Both zones filled and described, which is the state the button waits for. */
+  async function withBothFiles(fetched: ReturnType<typeof serviceDescribesEverything>) {
+    render(<App />);
+    await choose(uk.dropzones.original.pick, fitFile('Run_4k_Chabany.fit'));
+    await choose(uk.dropzones.track.pick, fitFile('route.gpx'));
+    await screen.findByText(uk.inspection.length);
+    expect(repair()).toBeEnabled();
+    return fetched;
+  }
+
+  it('shows that it is working, then the result', async () => {
+    let answerRepair: (answer: Response) => void = () => {};
+    const fetched = serviceDescribesEverything(
+      () =>
+        new Promise<Response>((resolve) => {
+          answerRepair = resolve;
+        }),
+    );
+    await withBothFiles(fetched);
+
+    await userEvent.click(repair());
+
+    const working = screen.getByRole('button', { name: uk.repair.working });
+    expect(working).toBeDisabled();
+    expect(working).toHaveAttribute('aria-busy', 'true');
+    expect(screen.queryByRole('heading', { name: uk.result.title })).not.toBeInTheDocument();
+
+    answerRepair(answers(aReport));
+
+    expect(await screen.findByRole('heading', { name: uk.result.title })).toBeInTheDocument();
+    expect(screen.getByText(uk.result.distance)).toBeInTheDocument();
+    expect(screen.getByText(uk.result.time)).toBeInTheDocument();
+    expect(screen.getByText(uk.result.pace)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: uk.result.download })).toBeInTheDocument();
+
+    // The two files went in one request, each named for the role it was offered in (AD-15).
+    const repairs = fetched.mock.calls.filter(([url]) => url === '/api/repair');
+    expect(repairs).toHaveLength(1);
+    const [, request] = repairs[0] as [string, RequestInit];
+    expect(request.method).toBe('POST');
+    const body = request.body as FormData;
+    expect((body.get('original') as File).name).toBe('Run_4k_Chabany.fit');
+    expect((body.get('track') as File).name).toBe('route.gpx');
+    // No track-length mode: the conservative length is the only one nobody has to confirm (AD-17).
+    expect(body.get('trackLengthMode')).toBeNull();
+  });
+
+  it('asks once however often the button is pressed', async () => {
+    const fetched = serviceDescribesEverything(() => new Promise<Response>(() => {}));
+    await withBothFiles(fetched);
+
+    const button = repair();
+    await userEvent.click(button);
+    await userEvent.click(button);
+    await userEvent.click(button);
+
+    expect(repairCalls(fetched)).toBe(1);
+  });
+
+  it('states a refusal in the dictionary words and stays where the files are', async () => {
+    const fetched = serviceDescribesEverything(() =>
+      answers({ code: 'DISTANCE_SERIES_IMPLAUSIBLE' }, 400),
+    );
+    await withBothFiles(fetched);
+
+    await userEvent.click(repair());
+
+    expect(await screen.findByText(uk.codes.DISTANCE_SERIES_IMPLAUSIBLE)).toBeInTheDocument();
+    // Both files are still there, and the button can be pressed again — the answer to a refusal
+    // is one more press, not two more drops.
+    expect(screen.queryByRole('heading', { name: uk.result.title })).not.toBeInTheDocument();
+    expect(screen.getByText(uk.dropzones.original.title)).toBeInTheDocument();
+    expect(repair()).toBeEnabled();
+  });
+
+  it('forgets a refusal as soon as one of the files changes', async () => {
+    const fetched = serviceDescribesEverything(() => answers({ code: 'TRACK_FAR_FROM_ORIGINAL' }, 400));
+    await withBothFiles(fetched);
+    await userEvent.click(repair());
+    await screen.findByText(uk.codes.TRACK_FAR_FROM_ORIGINAL);
+
+    await choose(uk.dropzones.track.pick, fitFile('another.gpx'));
+
+    expect(screen.queryByText(uk.codes.TRACK_FAR_FROM_ORIGINAL)).not.toBeInTheDocument();
+  });
+
+  it('says the service could not be reached, rather than blaming a file', async () => {
+    const fetched = serviceDescribesEverything(() => {
+      throw new TypeError('Failed to fetch');
+    });
+    await withBothFiles(fetched);
+
+    await userEvent.click(repair());
+
+    expect(await screen.findByText(uk.repair.unreachable)).toBeInTheDocument();
+    for (const code of Object.values(uk.codes)) {
+      expect(screen.queryByText(code)).not.toBeInTheDocument();
+    }
+  });
+});
+
+describe('starting again', () => {
+  it('returns to two empty zones with no result and the button disabled', async () => {
+    const fetched = serviceDescribesEverything(() => answers(aReport));
+    render(<App />);
+    await choose(uk.dropzones.original.pick, fitFile('Run_4k_Chabany.fit'));
+    await choose(uk.dropzones.track.pick, fitFile('route.gpx'));
+    await screen.findByText(uk.inspection.length);
+    await userEvent.click(screen.getByRole('button', { name: uk.repair.action }));
+    await screen.findByRole('heading', { name: uk.result.title });
+
+    await userEvent.click(screen.getByRole('button', { name: uk.result.startAgain }));
+
+    // The same page, not a reload: the empty state, with nothing left of either file.
+    expect(screen.getByRole('heading', { name: uk.hero.title })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: uk.repair.action })).toBeDisabled();
+    expect(screen.getByText(uk.repair.waitingForFiles)).toBeInTheDocument();
+    expect(screen.getAllByText(/Перетягни файл/)).toHaveLength(2);
+    expect(screen.queryByRole('button', { name: uk.dropzones.clear })).not.toBeInTheDocument();
+    expect(screen.queryByText('Run_4k_Chabany.fit')).not.toBeInTheDocument();
+
+    // Nothing was asked of the service by starting again: a repair is one request (AD-3).
+    await waitFor(() => expect(repairCalls(fetched)).toBe(1));
   });
 });
