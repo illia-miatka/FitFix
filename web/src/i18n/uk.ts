@@ -78,6 +78,26 @@ export const codeTexts = {
 /** A code the interface can look up — the keys of {@link codeTexts}, nothing wider. */
 export type DiagnosticCode = keyof typeof codeTexts;
 
+/**
+ * The units and separators a number is written with, for `format.ts`. One decision read from two
+ * places — a dropzone and the result screen — rather than two literals that can diverge, which is
+ * the same arrangement the design tokens are under.
+ */
+const units = {
+  kilometres: 'км',
+  perKilometre: '/км',
+  decimalSeparator: ',',
+} as const;
+
+/**
+ * A request that never arrived. Said about the service and never about a file, and said in one
+ * voice whether it was a zone or the repair that asked.
+ */
+const unreachable = 'Не вдалося звернутися до сервісу. Перевір зв’язок і спробуй ще раз.';
+
+/** The watch recorded no distance, which is not the same claim as zero metres. */
+const noRecordedDistance = 'Годинник не записав дистанцію';
+
 export const uk = {
   hero: {
     title: 'Пробіжка з битим GPS? Полагодимо.',
@@ -117,14 +137,14 @@ export const uk = {
     /** The bottom line of a zone that already holds a file — and the way out of a refusal. */
     another: 'Обрати інший файл',
     /** The request never arrived. About the service, never about the file (see `codes`). */
-    unreachable: 'Не вдалося звернутися до сервісу. Перевір зв’язок і спробуй ще раз.',
+    unreachable,
 
     // --- The original's own quantities.
     startedAt: 'Початок',
     duration: 'Тривалість',
     recordedDistance: 'Дистанція на годиннику',
     /** `recordedDistanceMeters` is null: the device measured nothing, which is not zero. */
-    noDistance: 'Годинник не записав дистанцію',
+    noDistance: noRecordedDistance,
 
     // --- The track's.
     length: 'Довжина треку',
@@ -132,8 +152,8 @@ export const uk = {
     format: 'Формат',
 
     /** The units and the separator a number is written with here. */
-    kilometres: 'км',
-    decimalSeparator: ',',
+    kilometres: units.kilometres,
+    decimalSeparator: units.decimalSeparator,
   },
 
   howItWorks: {
@@ -158,7 +178,43 @@ export const uk = {
     action: 'Виправити трек',
     /** Why the button is still disabled — said once, under it, not inside it. */
     waitingForFiles: 'Додай обидва файли, щоб продовжити.',
+    /** The button while the request is in flight (EXPERIENCE.md, State Patterns). */
+    working: 'Вирівнюю…',
+    /** The repair never reached the service. About the service, never about either file. */
+    unreachable,
   },
+
+  /**
+   * The result state (Story 2.6): before → after, the warnings above the numbers, the file and
+   * the way back to two empty zones. The map, the chart and the zone bar are Epic 3.
+   */
+  result: {
+    title: 'Готово. Ось що вийшло.',
+    lede: 'Час, пульс і каденс залишилися твої — змінилися маршрут і дистанція.',
+
+    /** The two sides of every metric, named so the arrow is not the only thing saying which. */
+    before: 'Було',
+    after: 'Стало',
+
+    distance: 'Дистанція',
+    time: 'Час',
+    pace: 'Темп',
+
+    /** The watch recorded no distance, so the "before" column has no distance and no pace. */
+    noDistance: noRecordedDistance,
+    noPace: 'Невідомо',
+
+    /** The warnings above the numbers, and the two severities spelled out beside the colour. */
+    warnings: 'Попередження',
+    blocking: 'Важливо',
+    info: 'До уваги',
+
+    download: 'Завантажити FIT',
+    startAgain: 'Почати знову',
+  },
+
+  /** The units `format.ts` writes a number in. */
+  units,
 
   /** Keyed by the code the API returned (AD-18). Equal to the core's registry by test. */
   codes: codeTexts,

@@ -3,6 +3,9 @@ import type { DragEvent, ReactNode } from 'react';
 
 import type { InspectOutcome, OriginalInspection, TrackInspection } from '../api/inspect';
 import { inspectOriginal, inspectTrack } from '../api/inspect';
+// The one place a metre or a second becomes a string (AD-14): a zone and the result screen must
+// not be able to write the same distance two ways.
+import { dateTime, duration, kilometres } from '../format';
 
 /** The strings of one zone, taken from `uk.dropzones.original` or `uk.dropzones.track`. */
 export interface DropzoneTexts {
@@ -249,14 +252,14 @@ function Described({
 function originalFacts(inspection: OriginalInspection, texts: InspectionTexts) {
   return (
     <>
-      <Fact label={texts.startedAt} value={dateTimeOf(inspection.startedAt)} />
-      <Fact label={texts.duration} value={durationOf(inspection.elapsedSeconds)} />
+      <Fact label={texts.startedAt} value={dateTime(inspection.startedAt)} />
+      <Fact label={texts.duration} value={duration(inspection.elapsedSeconds)} />
       <Fact
         label={texts.recordedDistance}
         value={
           inspection.recordedDistanceMeters === null
             ? texts.noDistance
-            : kilometresOf(inspection.recordedDistanceMeters, texts)
+            : kilometres(inspection.recordedDistanceMeters, texts)
         }
       />
     </>
@@ -266,7 +269,7 @@ function originalFacts(inspection: OriginalInspection, texts: InspectionTexts) {
 function trackFacts(inspection: TrackInspection, texts: InspectionTexts) {
   return (
     <>
-      <Fact label={texts.length} value={kilometresOf(inspection.lengthMeters, texts)} />
+      <Fact label={texts.length} value={kilometres(inspection.lengthMeters, texts)} />
       <Fact label={texts.points} value={String(inspection.pointCount)} />
       <Fact label={texts.format} value={inspection.format.toUpperCase()} />
     </>
@@ -282,32 +285,3 @@ function Fact({ label, value }: { readonly label: string; readonly value: string
   );
 }
 
-function pad(value: number) {
-  return String(value).padStart(2, '0');
-}
-
-/**
- * The start as `19.11.2026, 07:12`, in the reader's own time zone: the question this answers is
- * "is this the run I mean", and a Kyiv morning shown in UTC reads as a different hour.
- */
-function dateTimeOf(startedAt: string): string {
-  // The contract sends UTC with a trailing `Z`. A string without a designator would be read as
-  // local time instead, which is a silent shift, so one is ensured rather than assumed.
-  const utc = /(?:Z|[+-]\d{2}:?\d{2})$/.test(startedAt) ? startedAt : `${startedAt}Z`;
-  const at = new Date(utc);
-  return `${pad(at.getDate())}.${pad(at.getMonth() + 1)}.${at.getFullYear()}, ${pad(at.getHours())}:${pad(at.getMinutes())}`;
-}
-
-/** `36:02`, and `1:12:40` once there is an hour to show. */
-function durationOf(seconds: number): string {
-  const whole = Math.round(seconds);
-  const hours = Math.floor(whole / 3600);
-  const minutes = Math.floor((whole % 3600) / 60);
-  const rest = pad(whole % 60);
-  return hours > 0 ? `${hours}:${pad(minutes)}:${rest}` : `${minutes}:${rest}`;
-}
-
-function kilometresOf(metres: number, texts: InspectionTexts): string {
-  const kilometres = (metres / 1000).toFixed(2).replace('.', texts.decimalSeparator);
-  return `${kilometres} ${texts.kilometres}`;
-}
