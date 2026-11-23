@@ -1,5 +1,6 @@
 using System.Text.Json;
 using FitFix.Api.Contracts;
+using FitFix.Core;
 using FitFix.Core.Diagnostics;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
@@ -94,6 +95,132 @@ public class ContractShapeTests
         Assert.Equal("track", root.GetProperty("role").GetString());
         Assert.Equal("gpx", root.GetProperty("format").GetString());
         Assert.False(root.GetProperty("hasAltitude").GetBoolean());
+    }
+
+    [Fact]
+    public void The_repair_body_carries_its_seven_members_and_names_every_enum_as_a_string()
+    {
+        var repair = new RepairResponse(
+            Before: new OriginalSummaryResponse(
+                Sport: "running",
+                StartedAt: new DateTime(2026, 11, 19, 15, 30, 0, DateTimeKind.Utc),
+                RecordCount: 2161,
+                RecordedDistanceMeters: 3911,
+                DiscardedPositionCount: 1),
+            After: new RepairedSummaryResponse(
+                DistanceMeters: 6537.2,
+                ElapsedSeconds: 2160,
+                MovingSeconds: 2160,
+                PausedSeconds: 0,
+                AverageSpeedMetersPerSecond: 3.02,
+                MaximumSpeedMetersPerSecond: 3.4,
+                AverageHeartRate: 154,
+                MaximumHeartRate: 159,
+                AveragePower: 200,
+                MaximumPower: 210,
+                AverageCadence: 85,
+                MaximumCadence: 85,
+                ElevationGainMeters: 40,
+                ElevationLossMeters: 40,
+                LapCount: 1),
+            Track: new TrackLengthsResponse(LengthMeters: 6537.2, UsedLengthMeters: 6537.2),
+            Zones: [new TrustZoneResponse(ZoneKindName.Measured, 0, 1300)],
+            Series: new RepairSeriesResponse(
+                SecondsFromStart: [0, 1],
+                Original: new OriginalSeriesResponse(
+                    Latitude: [50.3333, null],
+                    Longitude: [30.3833, null],
+                    DistanceMeters: [0, null],
+                    SpeedMetersPerSecond: [3, null]),
+                Repaired: new RepairedSeriesResponse(
+                    Latitude: [50.3333, 50.3334],
+                    Longitude: [30.3833, 30.3834],
+                    AltitudeMeters: [182.8, null],
+                    DistanceMeters: [0, 3],
+                    SpeedMetersPerSecond: [3, 3],
+                    HeartRate: [150, null],
+                    Power: [200, null],
+                    Cadence: [85, null],
+                    TemperatureCelsius: [4, null])),
+            Warnings: [new RepairWarningResponse(DiagnosticCodes.GpsStallDetected, SeverityName.Info)],
+            FitBase64: "RklU");
+
+        using var document = JsonDocument.Parse(JsonSerializer.Serialize(repair, Web));
+        var root = document.RootElement;
+
+        Assert.Equal(
+            ["after", "before", "fitBase64", "series", "track", "warnings", "zones"],
+            root.EnumerateObject().Select(member => member.Name).Order());
+
+        Assert.Equal(
+            ["discardedPositionCount", "recordCount", "recordedDistanceMeters", "sport", "startedAt"],
+            root.GetProperty("before").EnumerateObject().Select(member => member.Name).Order());
+        Assert.Equal("2026-11-19T15:30:00Z", root.GetProperty("before").GetProperty("startedAt").GetString());
+
+        Assert.Equal(
+            ["averageCadence", "averageHeartRate", "averagePower", "averageSpeedMetersPerSecond",
+             "distanceMeters", "elapsedSeconds", "elevationGainMeters", "elevationLossMeters",
+             "lapCount", "maximumCadence", "maximumHeartRate", "maximumPower",
+             "maximumSpeedMetersPerSecond", "movingSeconds", "pausedSeconds"],
+            root.GetProperty("after").EnumerateObject().Select(member => member.Name).Order());
+
+        Assert.Equal(
+            ["lengthMeters", "usedLengthMeters"],
+            root.GetProperty("track").EnumerateObject().Select(member => member.Name).Order());
+
+        Assert.Equal(
+            ["original", "repaired", "secondsFromStart"],
+            root.GetProperty("series").EnumerateObject().Select(member => member.Name).Order());
+        Assert.Equal(
+            ["distanceMeters", "latitude", "longitude", "speedMetersPerSecond"],
+            root.GetProperty("series").GetProperty("original")
+                .EnumerateObject().Select(member => member.Name).Order());
+        Assert.Equal(
+            ["altitudeMeters", "cadence", "distanceMeters", "heartRate", "latitude", "longitude",
+             "power", "speedMetersPerSecond", "temperatureCelsius"],
+            root.GetProperty("series").GetProperty("repaired")
+                .EnumerateObject().Select(member => member.Name).Order());
+
+        // A gap is null rather than a missing element or a zero (AD-5), and the arrays stay the
+        // same length as each other.
+        var latitude = root.GetProperty("series").GetProperty("original").GetProperty("latitude");
+        Assert.Equal(2, latitude.GetArrayLength());
+        Assert.Equal(JsonValueKind.Null, latitude[1].ValueKind);
+
+        // Both enums as strings, never as the numbers behind them (AD-14).
+        var zone = root.GetProperty("zones")[0];
+        Assert.Equal(
+            ["fromSeconds", "kind", "toSeconds"],
+            zone.EnumerateObject().Select(member => member.Name).Order());
+        Assert.Equal("measured", zone.GetProperty("kind").GetString());
+
+        var warning = root.GetProperty("warnings")[0];
+        Assert.Equal(["code", "severity"], warning.EnumerateObject().Select(member => member.Name).Order());
+        Assert.Equal("info", warning.GetProperty("severity").GetString());
+        Assert.True(DiagnosticCodes.IsDeclared(warning.GetProperty("code").GetString()));
+    }
+
+    [Fact]
+    public void The_two_endpoints_name_a_sport_the_same_way()
+    {
+        // The dropzone and the result screen read one answer out of one dictionary: a sport spelt
+        // two ways would be two names for one file (AD-15).
+        Assert.Equal("running", SportName.Of(SportKind.Running));
+        Assert.Equal("cycling", SportName.Of(SportKind.Cycling));
+        Assert.Equal("other", SportName.Of(SportKind.Other));
+    }
+
+    [Fact]
+    public void Every_severity_and_zone_kind_the_core_has_can_be_named()
+    {
+        // The contract must be able to state whatever the core models, or a repair would leave as
+        // the shell's own failure over a value that is perfectly valid.
+        Assert.All(
+            Enum.GetValues<DiagnosticSeverity>(),
+            severity => Assert.False(string.IsNullOrEmpty(SeverityName.Of(severity))));
+        Assert.All(
+            Enum.GetValues<ZoneKind>(),
+            kind => Assert.False(string.IsNullOrEmpty(ZoneKindName.Of(kind))));
     }
 
     [Fact]

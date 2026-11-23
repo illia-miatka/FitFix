@@ -75,7 +75,7 @@ public static class InspectEndpoint
         // answer that cannot be delivered is the one expensive mistake available here.
         cancellation.ThrowIfCancellationRequested();
 
-        await using var content = await SeekableAsync(form.Files[0], cancellation);
+        await using var content = await UploadPart.SeekableAsync(form.Files[0], cancellation);
         var answer = describe(content, loggers.CreateLogger(LogCategory));
 
         return Results.Ok(answer);
@@ -124,7 +124,9 @@ public static class InspectEndpoint
 
         var answer = new OriginalInspectionResponse(
             Role: FileRole.Original,
-            Sport: NameOf(activity.Sport),
+            // The one owner of the sport's name in the contract, shared with the repair endpoint:
+            // two spellings of one sport would be two names for one file (AD-14, AD-15).
+            Sport: SportName.Of(activity.Sport),
             StartedAt: activity.StartTime,
             ElapsedSeconds: activity.ElapsedSeconds,
             // The device's own distance field, which cleaning never touches: this is the number
@@ -186,40 +188,6 @@ public static class InspectEndpoint
 
         return answer;
     }
-
-    /// <summary>
-    /// The part as a stream the readers can rewind. The FIT decoder reads the header, the
-    /// integrity check and the messages from the start each time, so a part the server did not
-    /// buffer would fail on the first seek — as an unexplained 500, since no code covers it.
-    /// A part that is already seekable is handed over untouched; the upload bound is what makes
-    /// the copy safe.
-    /// </summary>
-    private static async Task<Stream> SeekableAsync(IFormFile file, CancellationToken cancellation)
-    {
-        var content = file.OpenReadStream();
-        if (content.CanSeek)
-            return content;
-
-        await using (content)
-        {
-            var buffer = new MemoryStream();
-            await content.CopyToAsync(buffer, cancellation);
-            buffer.Position = 0;
-            return buffer;
-        }
-    }
-
-    /// <summary>
-    /// The sport as a string (AD-14). A sport the core does not model is <c>other</c> by
-    /// definition — that is what <see cref="SportKind.Other"/> means — so the fall-through names
-    /// it rather than inventing a fourth value.
-    /// </summary>
-    private static string NameOf(SportKind sport) => sport switch
-    {
-        SportKind.Running => "running",
-        SportKind.Cycling => "cycling",
-        _ => "other"
-    };
 
     /// <summary>
     /// The detected format as a string (AD-14). A format the core recognises and this contract
