@@ -1,0 +1,122 @@
+/*
+ * The design tokens of DESIGN.md, and nothing else.
+ *
+ * This file is the only place in the frontend that may name a colour, a radius or a spacing
+ * value literally; `uk.test.ts`'s sibling `theme.test.ts` fails on a hex literal anywhere
+ * under src/ outside it. A colour named in three components is three decisions that can
+ * diverge, which is the same reason every alignment threshold lives in `AlignmentOptions`
+ * (AD-10) rather than in the call sites.
+ *
+ * Tailwind 4 takes its theme from CSS custom properties: a `--color-*` entry here is what
+ * makes `bg-surface` and `text-accent` exist, so there is no second config file to keep in
+ * step with this one.
+ */
+
+@import 'tailwindcss';
+
+@theme {
+  /* --- Colours: the thirteen of DESIGN.md, spelled as it spells them. --- */
+  --color-bg: #0b0d10;
+  --color-surface: #14171c;
+  --color-surface-raised: #1b1f26;
+  --color-border: #262b33;
+  --color-text: #f2f4f7;
+  --color-text-muted: #8a93a3;
+  /* The colour of "repaired": the restored track, the primary CTA and positive deltas, and
+     nothing else. Never decoration, never more than about a tenth of the screen. */
+  --color-accent: #c8f135;
+  --color-accent-ink: #0b0d10;
+  /* The broken GPS. Always dashed as well as grey — a series never differs by hue alone. */
+  --color-original: #7c8594;
+  /* The estimated zone, and only it. */
+  --color-estimated: #f5b83d;
+  --color-heart: #ff5c7a;
+  --color-danger: #ff5c5c;
+  --color-info: #5cc8ff;
+
+  /* --- Radii: large on cards and dropzones, pill on buttons and badges. --- */
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 22px;
+  --radius-pill: 999px;
+
+  /* --- Spacing: the 4 px unit Tailwind multiplies, plus the two named steps. --- */
+  --spacing: 4px;
+  --spacing-gutter: 24px;
+  --spacing-section: 48px;
+
+  /* --- The two faces. Both carry Cyrillic; @fontsource loads them in main.tsx. --- */
+  --font-display: 'Unbounded', system-ui, sans-serif;
+  --font-body: 'Manrope', system-ui, sans-serif;
+
+  /* The mobile breakpoint of DESIGN.md: one column below 768 px. Tailwind's own `md` is the
+     same number, but naming it here is what lets a component say `md:` and mean this. */
+  --breakpoint-md: 768px;
+}
+
+/*
+ * The three type roles. A component picks a role; it never picks a family, a weight and a
+ * letter-spacing separately, because that is how two headings end up almost the same.
+ */
+@utility type-display {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+@utility type-body {
+  font-family: var(--font-body);
+  font-weight: 500;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+/* Tabular figures, so a changing number does not shift the ones beside it. */
+@utility type-metric {
+  font-family: var(--font-body);
+  font-weight: 800;
+  font-feature-settings: 'tnum';
+  font-variant-numeric: tabular-nums;
+}
+
+@layer base {
+  html {
+    background-color: var(--color-bg);
+    color-scheme: dark;
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--color-bg);
+    color: var(--color-text);
+    font-family: var(--font-body);
+    font-weight: 500;
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Depth comes from surface → surface-raised and a thin border, never from a drop shadow,
+     so a focus ring is the one thing allowed to draw outside an element. */
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+}
+
+/*
+ * prefers-reduced-motion switches animation off (Accessibility Floor, UX-DR). It is here
+ * rather than in each component for the same reason the tokens are: a component that
+ * animates without asking is still covered.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
+    scroll-behavior: auto !important;
+  }
+}

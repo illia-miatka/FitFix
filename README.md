@@ -10,6 +10,7 @@
 
 ```bash
 dotnet test
+npm --prefix web install && npm --prefix web run dev   # сторінка на http://localhost:5173
 ```
 
 ```bash
@@ -34,6 +35,8 @@ GPS завис на:      21:36
 |---|---|
 | `src/FitFix.Core` | Ядро: геометрія, вирівнювання, читання/запис FIT, читачі GPX і TCX |
 | `src/FitFix.Cli` | CLI `fitfix repair` |
+| `src/FitFix.Api` | Minimal API: `/api/inspect`, `/api/repair`, контракт відмов |
+| `web/` | Фронтенд: React 19 + Vite + Tailwind 4, словник `src/i18n/uk.ts` |
 | `tests/FitFix.Core.Tests` | xunit-тести + генератор синтетичної пробіжки з битим GPS |
 | `prototype/` | Початковий Python-прототип алгоритму (довідково) |
 | `docs/` | BMAD-артефакти: brief, PRD, UX, спайки |
