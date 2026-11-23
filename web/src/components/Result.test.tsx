@@ -220,10 +220,27 @@ describe('the warnings', () => {
     expect(screen.getByText(uk.result.blocking)).toBeInTheDocument();
   });
 
-  it('shows the code itself when the dictionary somehow lacks it', () => {
-    show(aReport({ warnings: [{ code: 'A_CODE_FROM_THE_FUTURE', severity: 'info' }] }));
+  it('reads generically when the dictionary lacks the code, saying the severity all the same', () => {
+    const { container } = show(
+      aReport({ warnings: [{ code: 'A_CODE_FROM_THE_FUTURE', severity: 'blocking' }] }),
+    );
 
-    expect(screen.getByText('A_CODE_FROM_THE_FUTURE')).toBeInTheDocument();
+    expect(screen.getByText(uk.errors.unexpected)).toBeInTheDocument();
+    expect(screen.queryByText('A_CODE_FROM_THE_FUTURE')).not.toBeInTheDocument();
+    // The severity is the answer's, not the dictionary's, so an unknown code does not downgrade
+    // it — and the code still reaches whoever gets the report (Story 2.7).
+    expect(screen.getByText(uk.result.blocking)).toBeInTheDocument();
+    expect(container.querySelector('[data-code="A_CODE_FROM_THE_FUTURE"]')).not.toBeNull();
+  });
+
+  it('leaves no code in the DOM for a warning it has the words for', () => {
+    const { container } = show(
+      aReport({ warnings: [{ code: 'POSITIONS_DISCARDED', severity: 'info' }] }),
+    );
+
+    expect(screen.getByText(uk.codes.POSITIONS_DISCARDED)).toBeInTheDocument();
+    expect(screen.getByText(uk.result.info)).toBeInTheDocument();
+    expect(container.querySelector('[data-code]')).toBeNull();
   });
 
   it('shows no callout at all when the repair had nothing to warn about', () => {
@@ -292,6 +309,21 @@ describe('the download', () => {
 
     // Released after the browser has taken the blob, not inside the click handler.
     await waitFor(() => expect(revoked).toHaveBeenCalledWith('blob:fitfix/1'));
+  });
+});
+
+describe('the Strava row', () => {
+  it('names the upload that is coming, and cannot be pressed', () => {
+    // EXPERIENCE.md's Result state. The upload is its own epic, and the label is where that is
+    // said: a disabled control cannot explain itself in a tooltip.
+    show(aReport());
+
+    const strava = screen.getByRole('button', { name: uk.result.strava });
+    expect(strava).toBeInTheDocument();
+    expect(strava).toBeDisabled();
+
+    // It is not the download under another name: that one still works beside it.
+    expect(screen.getByRole('button', { name: uk.result.download })).toBeEnabled();
   });
 });
 

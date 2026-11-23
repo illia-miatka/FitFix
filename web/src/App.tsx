@@ -4,15 +4,10 @@ import { repair as askForRepair } from './api/repair';
 import type { RepairReport } from './api/repair';
 import { Dropzone } from './components/Dropzone';
 import { HowItWorks } from './components/HowItWorks';
+import { Notice } from './components/Notice';
 import { Result } from './components/Result';
+import { codeText } from './errors';
 import { uk } from './i18n/uk';
-
-/**
- * The dictionary as the service's codes reach it: a `string` the server sent, not one of the keys
- * the dictionary happens to declare. The two are held equal by `uk.test.ts`, and the lookup below
- * still falls back, because a code with no text must not render an empty page.
- */
-const codes: Readonly<Record<string, string>> = uk.codes;
 
 /**
  * The three states of EXPERIENCE.md on one page: the two zones, the button working, and the
@@ -116,6 +111,7 @@ export function App() {
           texts={uk.dropzones.original}
           inspection={uk.inspection}
           clearLabel={uk.dropzones.clear}
+          retryLabel={uk.errors.retry}
           codes={uk.codes}
           file={original}
           onFileChange={takeOriginal}
@@ -126,6 +122,7 @@ export function App() {
           texts={uk.dropzones.track}
           inspection={uk.inspection}
           clearLabel={uk.dropzones.clear}
+          retryLabel={uk.errors.retry}
           codes={uk.codes}
           file={track}
           onFileChange={takeTrack}
@@ -152,14 +149,30 @@ export function App() {
           </p>
         )}
         {/* A failed repair leaves the page where the files are: both zones still hold what the
-            service accepted, so the answer to a refusal is one more press, not two more drops.
-            A live region, because the sentence arrives seconds after the button was pressed. */}
+            service accepted, so neither failure costs a second drop. A live region, because the
+            sentence arrives seconds after the button was pressed. */}
         <div role="status" className="empty:hidden">
+          {/* A 400 is a verdict on the two files that were sent, so it is not offered again from
+              the same pair: the service would answer with the same code. A repair that broke one
+              of our own invariants leaves as 500 with its code, and that one is worth a press —
+              `SUMMARY_SERIES_MISMATCH` is not the athlete's fault and not their file's. */}
           {state.status === 'refused' && (
-            <p className="text-sm text-danger">{codes[state.code] ?? state.code}</p>
+            <Notice
+              {...codeText(uk.codes, state.code)}
+              retry={
+                state.worthRepeating
+                  ? { label: uk.errors.retry, onPress: () => void onRepair() }
+                  : undefined
+              }
+            />
           )}
+          {/* A request that never arrived is worth repeating, and both accepted files are still
+              in their zones — so the whole fix is one press, in the same words a zone uses. */}
           {state.status === 'unreachable' && (
-            <p className="text-sm text-danger">{uk.repair.unreachable}</p>
+            <Notice
+              text={uk.repair.unreachable}
+              retry={{ label: uk.errors.retry, onPress: () => void onRepair() }}
+            />
           )}
         </div>
       </div>
@@ -184,7 +197,12 @@ type RepairState =
       readonly report: RepairReport;
       readonly originalName: string;
     }
-  | { readonly status: 'refused'; readonly code: string }
+  | {
+      readonly status: 'refused';
+      readonly code: string;
+      /** `RepairOutcome`'s own: whether asking again could end differently (a 500 can). */
+      readonly worthRepeating: boolean;
+    }
   | { readonly status: 'unreachable' };
 
 /**

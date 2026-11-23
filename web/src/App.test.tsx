@@ -320,14 +320,15 @@ describe('pressing the button', () => {
   });
 
   it('states a refusal in the dictionary words and stays where the files are', async () => {
+    // A code `FailureStatus` really answers 400 with: a fault in the files, not in the repair.
     const fetched = serviceDescribesEverything(() =>
-      answers({ code: 'DISTANCE_SERIES_IMPLAUSIBLE' }, 400),
+      answers({ code: 'ACTIVITY_TOO_MANY_LAPS' }, 400),
     );
     await withBothFiles(fetched);
 
     await userEvent.click(repair());
 
-    expect(await screen.findByText(uk.codes.DISTANCE_SERIES_IMPLAUSIBLE)).toBeInTheDocument();
+    expect(await screen.findByText(uk.codes.ACTIVITY_TOO_MANY_LAPS)).toBeInTheDocument();
     // Both files are still there, and the button can be pressed again — the answer to a refusal
     // is one more press, not two more drops.
     expect(screen.queryByRole('heading', { name: uk.result.title })).not.toBeInTheDocument();
@@ -358,6 +359,109 @@ describe('pressing the button', () => {
     for (const code of Object.values(uk.codes)) {
       expect(screen.queryByText(code)).not.toBeInTheDocument();
     }
+  });
+
+  it('states a code the dictionary lacks in the generic words, keeping the code in the DOM', async () => {
+    const fetched = serviceDescribesEverything(() => answers({ code: 'WHAT_IS_THIS' }, 400));
+    const { container } = render(<App />);
+    await choose(uk.dropzones.original.pick, fitFile('Run_4k_Chabany.fit'));
+    await choose(uk.dropzones.track.pick, fitFile('route.gpx'));
+    await screen.findByText(uk.inspection.length);
+
+    await userEvent.click(repair());
+
+    expect(await screen.findByText(uk.errors.unexpected)).toBeInTheDocument();
+    expect(screen.queryByText('WHAT_IS_THIS')).not.toBeInTheDocument();
+    expect(container.querySelector('[data-code="WHAT_IS_THIS"]')).not.toBeNull();
+    expect(repairCalls(fetched)).toBe(1);
+  });
+
+  it('offers no attempt after a 400: the same two files would be refused again', async () => {
+    // `TRACK_TOO_FEW_POINTS` is a 400 in `FailureStatus`, which is what makes this test about the
+    // status and not about the component's mood. `DISTANCE_SERIES_IMPLAUSIBLE` would not do: the
+    // API serves that one at 500, so a fixture pairing it with 400 would pass for the wrong reason.
+    const fetched = serviceDescribesEverything(() => answers({ code: 'TRACK_TOO_FEW_POINTS' }, 400));
+    await withBothFiles(fetched);
+
+    await userEvent.click(repair());
+    await screen.findByText(uk.codes.TRACK_TOO_FEW_POINTS);
+
+    expect(screen.queryByRole('button', { name: uk.errors.retry })).not.toBeInTheDocument();
+    expect(repairCalls(fetched)).toBe(1);
+  });
+
+  it('offers the attempt when the repair failed on our side, and pressing it repairs', async () => {
+    // The case the story exists for: `FailureStatus` keeps `DISTANCE_SERIES_IMPLAUSIBLE` and the
+    // other broken invariants at 500 with their own code, so the person is told what happened in
+    // the dictionary's words and handed the one thing they can do about it (EXPERIENCE.md).
+    let asks = 0;
+    const fetched = serviceDescribesEverything(() => {
+      asks += 1;
+      return asks === 1 ? answers({ code: 'SUMMARY_SERIES_MISMATCH' }, 500) : answers(aReport);
+    });
+    await withBothFiles(fetched);
+
+    await userEvent.click(repair());
+
+    expect(await screen.findByText(uk.codes.SUMMARY_SERIES_MISMATCH)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: uk.errors.retry }));
+
+    expect(await screen.findByRole('heading', { name: uk.result.title })).toBeInTheDocument();
+    expect(repairCalls(fetched)).toBe(2);
+    const repairs = fetched.mock.calls.filter(([url]) => url === '/api/repair');
+    const body = (repairs[1] as [string, RequestInit])[1].body as FormData;
+    expect((body.get('original') as File).name).toBe('Run_4k_Chabany.fit');
+    expect((body.get('track') as File).name).toBe('route.gpx');
+  });
+
+  it('repeats the request when the attempt beside an unreachable repair is pressed', async () => {
+    // The first ask never arrives; the second answers. Both files are still in their zones, so
+    // the whole fix is one press.
+    let asks = 0;
+    const fetched = serviceDescribesEverything(() => {
+      asks += 1;
+      if (asks === 1) throw new TypeError('Failed to fetch');
+      return answers(aReport);
+    });
+    await withBothFiles(fetched);
+
+    await userEvent.click(repair());
+    await screen.findByText(uk.repair.unreachable);
+
+    await userEvent.click(screen.getByRole('button', { name: uk.errors.retry }));
+
+    expect(await screen.findByRole('heading', { name: uk.result.title })).toBeInTheDocument();
+    expect(repairCalls(fetched)).toBe(2);
+
+    // Both files went again, each named for its role (AD-15): a retry is the same request.
+    const repairs = fetched.mock.calls.filter(([url]) => url === '/api/repair');
+    const [, second] = repairs[1] as [string, RequestInit];
+    const body = second.body as FormData;
+    expect((body.get('original') as File).name).toBe('Run_4k_Chabany.fit');
+    expect((body.get('track') as File).name).toBe('route.gpx');
+  });
+
+  it('leaves nothing to press twice while the repeated request is in flight', async () => {
+    let asks = 0;
+    const fetched = serviceDescribesEverything(() => {
+      asks += 1;
+      if (asks === 1) throw new TypeError('Failed to fetch');
+      // The second ask never answers: the page has to be holding the working state, not the
+      // failure, for as long as it is out.
+      return new Promise<Response>(() => {});
+    });
+    await withBothFiles(fetched);
+
+    await userEvent.click(repair());
+    await userEvent.click(await screen.findByRole('button', { name: uk.errors.retry }));
+
+    // The attempt goes with the sentence it belonged to, and the button says it is working —
+    // which, with the guard the main button already has, is why one press is one request.
+    expect(screen.queryByRole('button', { name: uk.errors.retry })).not.toBeInTheDocument();
+    expect(screen.queryByText(uk.repair.unreachable)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: uk.repair.working })).toBeDisabled();
+    expect(repairCalls(fetched)).toBe(2);
   });
 });
 

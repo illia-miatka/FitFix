@@ -15,6 +15,8 @@
  * `/api/*` in production, and Vite proxies `/api` in development (AD-12).
  */
 
+import { worthRepeating } from './failure';
+
 /** The route, spelled as `FitFix.Api.RepairEndpoint.Route` spells it. */
 const route = '/api/repair';
 
@@ -139,14 +141,22 @@ export interface RepairReport {
 
 /**
  * What one repair can come back as. The three are different things to say to a person, and
- * `unreachable` is not a refusal: a 400 with a code means one of the two files is not what the
- * repair needs, and the dictionary has the sentence for it; a request that never arrived says
- * nothing at all about either file, and calling one bad would send somebody hunting for a problem
- * that is not theirs.
+ * `unreachable` is not a refusal: a failure with a code means the service answered and the
+ * dictionary has the sentence for it; a request that never arrived says nothing at all about
+ * either file, and calling one bad would send somebody hunting for a problem that is not theirs.
  */
 export type RepairOutcome =
   | { readonly status: 'repaired'; readonly report: RepairReport }
-  | { readonly status: 'refused'; readonly code: string }
+  | {
+      readonly status: 'refused';
+      readonly code: string;
+      /**
+       * Whether asking again could end differently. A 400 is about the two files that were sent
+       * and never will (`worthRepeating`); the repair's own broken invariants leave as 500 with
+       * their code, and those are the ones worth one more press.
+       */
+      readonly worthRepeating: boolean;
+    }
   | { readonly status: 'unreachable' };
 
 /**
@@ -181,7 +191,9 @@ export async function repair(
     // body without one is not a refusal this interface can state, so it is not dressed up as
     // one — the dictionary would have nothing to look up.
     const { code } = payload;
-    return typeof code === 'string' ? { status: 'refused', code } : { status: 'unreachable' };
+    return typeof code === 'string'
+      ? { status: 'refused', code, worthRepeating: worthRepeating(response.status, code) }
+      : { status: 'unreachable' };
   }
 
   // The file is what the whole screen stands on, so its presence is what makes the cast below
