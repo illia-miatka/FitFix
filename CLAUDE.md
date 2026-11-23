@@ -42,8 +42,11 @@
 - [x] UX — `docs/planning-artifacts/ux-designs/ux-fitfix-2026-11-19/{DESIGN,EXPERIENCE}.md`
 - [x] Спайк .NET + Garmin FIT SDK — `docs/spikes/spike-dotnet-fit-sdk-2026-11-19.md`
 - [x] Architecture — `docs/planning-artifacts/architecture/architecture-fitfix-2026-11-19/ARCHITECTURE-SPINE.md`
-- [ ] **Наступне: Epics & Stories** (`bmad-create-epics-and-stories`)
-- [ ] Sprint Planning (`bmad-sprint-planning`)
+- [x] Epics & Stories — `docs/planning-artifacts/epics.md` (3 епіки, 24 сторі)
+- [x] Sprint Planning — `docs/implementation-artifacts/sprint-status.yaml`
+- [x] Епік 1 «Виправлення, якому можна вірити» — сторі 1.1–1.9 і 1.12; 1.8, 1.10 і 1.11 лишені в беклозі за рішенням Іллі
+- [x] Епік 2 «Виправлення у браузері» — сторі 2.1–2.8 закриті 23.11.2026: `docker compose up` піднімає сервіс на `localhost:8080`
+- [ ] **Наступне: грумінг часткового фіксу** (фрагмент треку на зламану ділянку — див. `docs/implementation-artifacts/deferred-work.md`), далі Епік 3 «Прев'ю, якому можна вірити»
 - [ ] Build по сторі (`bmad-build`) → Code Review → QA
 
 Не знаєш, що далі — запусти скіл `bmad-help`.
