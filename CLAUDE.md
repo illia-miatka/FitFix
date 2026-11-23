@@ -66,15 +66,29 @@
 - Stateless: файли не зберігаються.
 - Стек (вибрано 19.11.2026, перевірено спайком):
   - Backend: **.NET 10** (LTS; локально SDK 10.0.302), ASP.NET Core Minimal API (`src/FitFix.Api`, сторі 2.1), **`Garmin.FIT.Sdk` 21.222.0** — офіційний Garmin FIT SDK, читання й запис. GPX/TCX — `System.Xml.Linq`. Формат треку визначається за вмістом файлу.
-  - Проєкти: `src/FitFix.Core` (чисте ядро, без вебу), `src/FitFix.Cli` (`fitfix repair ORIGINAL TRACK -o OUT`), `src/FitFix.Api` (Minimal API: `/health` і контракт відмов), `tests/FitFix.Core.Tests` і `tests/FitFix.Api.Tests` (xunit; API-тести ходять справжнім HTTP по Kestrel). Далі — `web/`.
-  - Frontend: React 19, Vite, TypeScript, Tailwind 4 (`@tailwindcss/vite`), react-leaflet 5 + Leaflet 1.9 (темна підкладка CARTO), Recharts 3, lucide-react, шрифти `@fontsource/unbounded` + `@fontsource/manrope`. **Node локально ще не встановлений.**
+  - Проєкти: `src/FitFix.Core` (чисте ядро, без вебу), `src/FitFix.Cli` (`fitfix repair ORIGINAL TRACK -o OUT`), `src/FitFix.Api` (Minimal API: `/health` і контракт відмов), `tests/FitFix.Core.Tests` і `tests/FitFix.Api.Tests` (xunit; API-тести ходять справжнім HTTP по Kestrel), `web/` (фронтенд, сторі 2.4).
+  - Frontend: React 19, Vite 7, TypeScript, Tailwind 4 (`@tailwindcss/vite`), шрифти `@fontsource/unbounded` + `@fontsource/manrope`; тести — Vitest + Testing Library у jsdom. Далі в епіку 3: react-leaflet 5 + Leaflet 1.9 (темна підкладка CARTO), Recharts 3, lucide-react. Локально Node 26, npm 11.
   - Один Docker-образ: збірка фронту → статика роздається ASP.NET Core. `docker compose up`. Публічного хостингу в MVP немає.
   - API (чернетка): `POST /api/inspect` (метадані одного файлу), `POST /api/repair` (multipart: original, track → JSON-звіт + FIT у base64).
 - Дизайн: темний графіт, один лаймовий акцент `#C8F135` для виправленого треку, пунктир `#7C8594` для оригіналу, `#F5B83D` для розрахованої зони. Не використовувати помаранчевий Strava-брендинг.
 
+## Фронтенд (`web/`, сторі 2.4)
+
+```bash
+npm --prefix web install      # один раз
+npm --prefix web run dev      # Vite на :5173, /api проксюється на Kestrel :5000
+npm --prefix web run typecheck
+npm --prefix web run build
+npm --prefix web run test     # Vitest
+```
+
+- `src/theme.css` — **єдине** місце, де взагалі є колір, радіус чи крок сітки. Токени DESIGN.md живуть у `@theme` (Tailwind 4 бере тему з CSS, окремого конфіга немає), три типографічні ролі — `@utility type-display|type-body|type-metric`. `theme.test.ts` падає на будь-якому hex поза цим файлом.
+- `src/i18n/uk.ts` — **єдине** місце з текстом для людини. `uk.test.ts` тримає ключі `codes` рівними `DiagnosticCodes.All`: він парсить сам `DiagnosticCodes.cs`, а не копію списку, тож новий код у ядрі одразу валить тест, поки йому не напишуть український текст (AD-18).
+- `prefers-reduced-motion` вимикає анімації глобально в `theme.css`, не покомпонентно.
+
 ## Конвенції
 
-- Тести: `dotnet test`; синтетичні фікстури генерувати кодом (`tests/FitFix.Core.Tests/Fixtures/SyntheticRun.cs`), реальні файли — лише з `tests/fixtures/private/` (тест тихо виходить, якщо їх нема).
+- Тести: `dotnet test` і `npm --prefix web run test`; синтетичні фікстури генерувати кодом (`tests/FitFix.Core.Tests/Fixtures/SyntheticRun.cs`), реальні файли — лише з `tests/fixtures/private/` (тест тихо виходить, якщо їх нема).
 - Код, XML-доки й коментарі — англійською; у коментарях посилатись на FR/SM з PRD.
 - Повідомлення комітів — англійською.
 - Планувальні артефакти, написані до 19.11.2026 (PRD, spine, epics, UX), лишаються українською; нові й суттєво перероблені пишемо англійською. Торкаєшся файлу з українськими коментарями — перекладай те, що змінюєш.
