@@ -132,7 +132,11 @@ jobs:
         run: |
           set -euo pipefail
           test "$(docker exec fitfix id -u)" -ne 0
-          docker exec fitfix sh -c 'touch /app/written' 2>&1 | grep -q 'Read-only file system'
+          # The refusal is captured rather than piped: touch exits 1 when it is refused, which
+          # is the point, and under `pipefail` that failure would sink the whole pipeline even
+          # though grep found exactly what this step is looking for.
+          refusal=$(docker exec fitfix sh -c 'touch /app/written 2>&1; true')
+          printf '%s\n' "$refusal" | grep -q 'Read-only file system'
 
       - name: Stop it
         if: always()
