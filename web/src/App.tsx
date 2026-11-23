@@ -6,18 +6,24 @@ import { uk } from './i18n/uk';
 
 /**
  * The empty state of EXPERIENCE.md: a heading, two zones naming their roles, the three steps,
- * and one CTA that waits for both files. Working and result are Stories 2.5 to 2.6; nothing is
- * uploaded here, the two files only live in state.
+ * and one CTA that waits for both files. The result screen is Story 2.6; the repair itself is
+ * not asked for here, and each zone asks `/api/inspect` about its own file.
+ *
+ * What the button waits for is two *accepted* files, not two chosen ones: a zone whose file the
+ * service refused holds nothing the repair could use, so each zone reports acceptance and the
+ * files themselves say nothing about the gate.
  *
  * Below 768 px everything is one column (DESIGN.md, Layout & Spacing) — the grids start at
  * `grid-cols-1` and widen at `md:`, so the narrow layout is the one that needs no breakpoint.
  */
 export function App() {
   const [original, setOriginal] = useState<File | null>(null);
+  const [originalAccepted, setOriginalAccepted] = useState(false);
   const [track, setTrack] = useState<File | null>(null);
+  const [trackAccepted, setTrackAccepted] = useState(false);
   const waitingHintId = useId();
 
-  const bothChosen = original !== null && track !== null;
+  const bothChosen = originalAccepted && trackAccepted;
 
   return (
     <main className="mx-auto w-full max-w-[1200px] px-gutter py-section">
@@ -28,16 +34,24 @@ export function App() {
 
       <div className="mt-section grid grid-cols-1 gap-gutter md:grid-cols-2">
         <Dropzone
+          role="original"
           texts={uk.dropzones.original}
+          inspection={uk.inspection}
           clearLabel={uk.dropzones.clear}
+          codes={uk.codes}
           file={original}
           onFileChange={setOriginal}
+          onAcceptedChange={setOriginalAccepted}
         />
         <Dropzone
+          role="track"
           texts={uk.dropzones.track}
+          inspection={uk.inspection}
           clearLabel={uk.dropzones.clear}
+          codes={uk.codes}
           file={track}
           onFileChange={setTrack}
+          onAcceptedChange={setTrackAccepted}
         />
       </div>
 
