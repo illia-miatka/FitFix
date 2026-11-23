@@ -13,16 +13,33 @@ public class RepairServiceTests
     }
 
     [Fact]
-    public void Total_distance_equals_track_length()
+    public void Total_distance_is_the_sum_of_the_two_sources_and_not_the_track_length()
     {
         var run = SyntheticRun.Create();
         var track = run.ReferenceTrack;
         var result = RepairService.Repair(run.Original, track);
 
-        // FR-6: total_distance = довжина Еталонного треку (±0,5 %). The whole of it: this
-        // fixture's own time makes the whole track plausible, so nothing is trimmed (AD-17).
+        // The whole track is used: this fixture's own time makes all of it plausible, so nothing
+        // is trimmed (AD-17).
         Assert.Equal(track.Length, result.Report.UsedTrackLengthMeters, 0.001);
-        Assert.Equal(track.Length, result.Report.RepairedDistanceMeters, track.Length * 0.005);
+
+        // And the repaired distance is past it, legitimately (AD-26). The estimated zone drew the
+        // metres the track holds beyond the last anchor; the measured zone measured its own, and
+        // the real jitter in those positions is the surplus.
+        Assert.Equal(
+            track.Length + AlignmentOptionsTests.ExpectedMeasuredZoneSurplus,
+            result.Report.RepairedDistanceMeters,
+            0.01);
+        Assert.True(
+            result.Report.RepairedDistanceMeters > track.Length,
+            $"the sum came to {result.Report.RepairedDistanceMeters:F1} m, at or below the track's "
+                + $"{track.Length:F1} m: nothing in it came from the watch's own positions");
+
+        // Within the 1–3 % AD-26 budgets for a measured stretch, over the part of the activity
+        // the surplus was earned in: the price of real data, and no licence to inflate a run.
+        var inflation = AlignmentOptionsTests.ExpectedMeasuredZoneSurplus
+            / result.Alignment.MeasuredDistanceMeters;
+        Assert.InRange(inflation, 0.001, 0.03);
     }
 
     [Fact]
@@ -189,14 +206,27 @@ public class RepairServiceTests
     }
 
     [Fact]
-    public void Altitude_comes_from_track_shifted_to_the_original_start()
+    public void Altitude_follows_the_source_of_its_own_zone()
     {
         var run = SyntheticRun.Create();
-        var result = RepairService.Repair(run.Original, run.ReferenceTrack);
+        var track = run.ReferenceTrack;
+        var result = RepairService.Repair(run.Original, track);
 
-        // Трек зсунуто на −400.8 м; після вирівнювання старт має збігатись з Оригіналом.
+        // A measured record keeps the watch's own altitude, to the millimetre (AD-26) — the start
+        // line, where the barometer read 182.8 m.
         Assert.NotNull(result.Records[0].Altitude);
-        Assert.Equal(SyntheticRun.OriginalStartAltitude, result.Records[0].Altitude!.Value, 1.0);
+        Assert.Equal(run.Original.Records[0].Altitude!.Value, result.Records[0].Altitude!.Value, 1e-9);
+        Assert.Equal(SyntheticRun.OriginalStartAltitude, result.Records[0].Altitude!.Value, 1e-9);
+
+        // The last record is inside the estimated zone and sits at the end of the track, so its
+        // altitude is the track's own there plus the shift that lines the track up with the
+        // Original's start — this fixture's track is 400.8 m low, as FFF.fit was (FR-6).
+        var shift = SyntheticRun.OriginalStartAltitude - track.StartAltitude!.Value;
+        Assert.Equal(-SyntheticRun.TrackAltitudeOffset, shift, 1e-9);
+        Assert.Equal(
+            track.At(track.Length).Altitude!.Value + shift,
+            result.Records[^1].Altitude!.Value,
+            1e-9);
     }
 
     [Fact]

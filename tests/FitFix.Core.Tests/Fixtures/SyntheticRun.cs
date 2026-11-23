@@ -350,12 +350,12 @@ public sealed class SyntheticRun
         return new Course(points, cumulative, length, trackPoints);
     }
 
-    /// <summary>The one seeded noise source, so the GPS jitter is the same sequence in both runs.</summary>
-    private static Random Noise() => new(42);
+    /// <summary>The one seeded error source, so the GPS error is the same sequence in both runs.</summary>
+    private static GpsError Noise() => new(42);
 
-    /// <summary>What the watch reports for a point on the course: the truth plus 3 m of jitter.</summary>
-    private static GeoPoint Measured(Course course, double travelled, Random noise) =>
-        Jitter(PositionAt(course.Points, course.Cumulative, travelled), noise, 3);
+    /// <summary>What the watch reports for a point on the course: the truth plus its own error.</summary>
+    private static GeoPoint Measured(Course course, double travelled, GpsError noise) =>
+        noise.Measured(PositionAt(course.Points, course.Cumulative, travelled));
 
     public static SyntheticRun Create(bool withGpsFailure = true, bool withAnyGps = true)
     {
@@ -702,13 +702,47 @@ public sealed class SyntheticRun
             points[index].Longitude + u * (points[index + 1].Longitude - points[index].Longitude));
     }
 
-    private static GeoPoint Jitter(GeoPoint point, Random random, double metersRadius)
+    /// <summary>
+    /// The watch's own position error: a bounded drift, not a fresh draw every second. Real GPS
+    /// error is a bias that wanders over tens of seconds — the fix sits a metre or two off the
+    /// same side of the path for a while — which is what makes a watch's own positions usable as
+    /// a distance at all (AD-26).
+    /// <para>
+    /// Independent noise each second, which this fixture drew until story 1.12, has the same
+    /// amplitude and a per-second step of its own size: consecutive fixes of the 3 m/s athlete
+    /// then lie 4.4 m apart, and summing them inflates the measured stretch by nearly 40 % — no
+    /// watch behaves that way, and AD-26 budgets the inflation at 1–3 %. Under the old model the
+    /// repaired distance came from the track alone, so nothing observed the difference.
+    /// </para>
+    /// The error stays within <see cref="RadiusMeters"/> of the truth either way, so every anchor
+    /// tolerance and compatibility threshold the suite pins still means what it meant.
+    /// </summary>
+    private sealed class GpsError(int seed)
     {
-        var dy = (random.NextDouble() * 2 - 1) * metersRadius;
-        var dx = (random.NextDouble() * 2 - 1) * metersRadius;
-        return new GeoPoint(
-            point.Latitude + dy / Geo.MetersPerDegreeLatitude,
-            point.Longitude + dx / (Geo.MetersPerDegreeLatitude * Math.Cos(point.Latitude * Math.PI / 180.0)));
+        /// <summary>How far from the truth a fix may wander, m.</summary>
+        private const double RadiusMeters = 3;
+
+        /// <summary>How far the error itself may move from one second to the next, m.</summary>
+        private const double StepMeters = 0.75;
+
+        private readonly Random random = new(seed);
+        private double east;
+        private double north;
+
+        /// <summary>The fix the watch writes for a point it is really at.</summary>
+        public GeoPoint Measured(GeoPoint truth)
+        {
+            east = Wander(east);
+            north = Wander(north);
+
+            return new GeoPoint(
+                truth.Latitude + north / Geo.MetersPerDegreeLatitude,
+                truth.Longitude
+                    + east / (Geo.MetersPerDegreeLatitude * Math.Cos(truth.Latitude * Math.PI / 180.0)));
+        }
+
+        private double Wander(double offset) =>
+            Math.Clamp(offset + (random.NextDouble() * 2 - 1) * StepMeters, -RadiusMeters, RadiusMeters);
     }
 
     /// <summary>Невеликий профіль висоти, щоб перевірити перенесення альтитуди.</summary>

@@ -96,7 +96,14 @@ public class RepairTests : IDisposable
             Records = [.. run.Original.Records.Select((record, index) => record with
             {
                 Power = (ushort)(200 + (index % 7)),
-                Cadence = (byte)(80 + (index % 5))
+                Cadence = (byte)(80 + (index % 5)),
+                // The watch's own altitude only climbs too, and more gently than the track does
+                // (0.015 m/m against 0.02): a measured record keeps its own altitude and an
+                // estimated one takes the track's (AD-26), so a watch that climbed faster than the
+                // route would make the switch of source a descent and put a loss in the summary
+                // that neither profile contains.
+                Altitude = SyntheticRun.OriginalStartAltitude
+                    + 0.015 * index * SyntheticRun.SpeedMetersPerSecond
             })]
         });
         var track = SyntheticFitBuilder.WriteTrack(Climbing(run), SyntheticRun.StartTime);
@@ -468,6 +475,7 @@ public class RepairTests : IDisposable
         var run = SyntheticRun.Create().WithTrackDrawn(SyntheticRun.LoopsPastTwiceThePlausibleDistance);
         var (original, track) = Files(run);
         var whole = Repair(original, track).Report.TrackLengthMeters;
+        var confirmedDistance = Repair(original, track, TrackLengthMode.Full).Report.RepairedDistanceMeters;
 
         using var conservative = await RepairAsync(original, track);
         using var confirmed = await RepairAsync(original, track, TrackLengthModes.Full);
@@ -481,7 +489,12 @@ public class RepairTests : IDisposable
         // Confirming the track changes the result — that is why the client repeats the request
         // instead of merely opening the gate (AD-17).
         Assert.True(fullDistance > trimmedDistance, $"{fullDistance:F0} m against {trimmedDistance:F0} m");
-        Assert.Equal(whole, fullDistance, 0.001);
+
+        // The whole track is what the estimated zone drew from; the distance the answer states is
+        // that plus what the measured zone's own positions measured, so it is past the track's
+        // length rather than on it (AD-26) — and it is the core's number, not one of the API's.
+        Assert.Equal(confirmedDistance, fullDistance, 0.001);
+        Assert.True(fullDistance > whole, $"{fullDistance:F1} m is not past the track's {whole:F1} m");
         Assert.Equal(whole, full.GetProperty("track").GetProperty("usedLengthMeters").GetDouble(), 0.001);
         Assert.True(trimmed.GetProperty("track").GetProperty("lengthMeters").GetDouble() > trimmedDistance);
 
@@ -682,6 +695,14 @@ public class RepairTests : IDisposable
         using var originalStream = new MemoryStream(original);
         using var trackStream = new MemoryStream(track);
         return RepairPipeline.Repair(originalStream, trackStream);
+    }
+
+    /// <inheritdoc cref="Repair(byte[], byte[])"/>
+    private static RepairResult Repair(byte[] original, byte[] track, TrackLengthMode mode)
+    {
+        using var originalStream = new MemoryStream(original);
+        using var trackStream = new MemoryStream(track);
+        return RepairPipeline.Repair(originalStream, trackStream, mode);
     }
 
     /// <summary>Every series of the answer, by the name a failure should report it under.</summary>

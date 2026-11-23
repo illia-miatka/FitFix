@@ -15,6 +15,16 @@ public sealed record RepairReport
     /// metres, and a shell describing the same file before the repair says the same thing (AD-15).
     /// </summary>
     public required double? OriginalDistanceMeters { get; init; }
+
+    /// <summary>
+    /// The distance of the repaired activity, m — a <em>sum</em>, and legitimately equal to
+    /// neither <see cref="TrackLengthMeters"/> nor <see cref="UsedTrackLengthMeters"/> (AD-26).
+    /// The measured stretches are measured along the watch's own positions, the estimated ones
+    /// along the track, and the two are added: real GPS jitter inflates a measured stretch by a
+    /// percent or two, which is the accepted price of keeping the positions the watch got right.
+    /// A reader who finds this number beside the track's length should not take the difference
+    /// for a defect.
+    /// </summary>
     public required double RepairedDistanceMeters { get; init; }
 
     /// <summary>

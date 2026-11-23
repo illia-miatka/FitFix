@@ -80,8 +80,13 @@ public class TrackLengthTests
         Assert.Equal(track.Length, result.Report.TrackLengthMeters, 0.001);
         Assert.Equal(plausible, result.Report.UsedTrackLengthMeters, 0.001);
 
-        // And the repair ends on the shorter one: a preview must not open with an inflated pace.
-        Assert.Equal(plausible, result.Report.RepairedDistanceMeters, 0.001);
+        // And the estimated zone draws from the shorter one: a preview must not open with an
+        // inflated pace. The repaired distance is that budget plus what the measured zone's own
+        // positions added, which is where AD-17's choice now shows up (AD-26).
+        Assert.Equal(
+            plausible + AlignmentOptionsTests.ExpectedMeasuredZoneSurplus,
+            result.Report.RepairedDistanceMeters,
+            0.01);
     }
 
     [Fact]
@@ -93,7 +98,12 @@ public class TrackLengthTests
         var trusted = RepairService.Repair(run.Original, track, TrackLengthMode.Full);
 
         Assert.Equal(track.Length, trusted.Report.UsedTrackLengthMeters, 0.001);
-        Assert.Equal(track.Length, trusted.Report.RepairedDistanceMeters, 0.001);
+        // The whole of the five-lap track is drawn from, and the measured zone's own positions add
+        // their surplus on top of it (AD-26).
+        Assert.Equal(
+            track.Length + AlignmentOptionsTests.ExpectedMeasuredZoneSurplus,
+            trusted.Report.RepairedDistanceMeters,
+            0.01);
 
         // Confirming changes the result; it does not make the track plausible, and a shell showing
         // the confirmed file still has to be able to say so.
@@ -117,7 +127,10 @@ public class TrackLengthTests
 
         Assert.DoesNotContain(DiagnosticCodes.TrackLongerThanActivity, result.Report.Warnings);
         Assert.Equal(track.Length, result.Report.UsedTrackLengthMeters, 0.001);
-        Assert.Equal(track.Length, result.Report.RepairedDistanceMeters, 0.001);
+        Assert.Equal(
+            track.Length + AlignmentOptionsTests.ExpectedMeasuredZoneSurplus,
+            result.Report.RepairedDistanceMeters,
+            0.01);
     }
 
     [Fact]
@@ -157,7 +170,12 @@ public class TrackLengthTests
 
         Assert.Equal(5_000, activity.LargestRecordedDistance!.Value, 0.001);
         Assert.Equal(5_000, result.Report.UsedTrackLengthMeters, 0.001);
-        Assert.Equal(5_000, result.Report.RepairedDistanceMeters, 0.001);
+        // The sensor's figure bounds what the estimated zone takes from the track; the measured
+        // zone still measures itself, and the sum is past it by that surplus (AD-26).
+        Assert.Equal(
+            5_000 + AlignmentOptionsTests.ExpectedMeasuredZoneSurplus,
+            result.Report.RepairedDistanceMeters,
+            0.01);
         Assert.Contains(DiagnosticCodes.TrackLongerThanActivity, result.Report.Warnings);
 
         // The cap rule would have allowed almost twice as far, which is what makes this the
@@ -343,7 +361,7 @@ public class TrackLengthTests
     [Theory]
     [InlineData(TrackLengthMode.Plausible)]
     [InlineData(TrackLengthMode.Full)]
-    public void Distance_never_decreases_and_ends_exactly_on_the_chosen_length(TrackLengthMode mode)
+    public void Distance_never_decreases_and_ends_on_the_sum_the_two_sources_came_to(TrackLengthMode mode)
     {
         var run = SyntheticRun.Create().WithTrackDrawn(SyntheticRun.LoopsPastTwiceThePlausibleDistance);
 
@@ -356,14 +374,19 @@ public class TrackLengthTests
                 result.Records[i].Distance >= result.Records[i - 1].Distance,
                 $"distance fell at record {i}: {result.Records[i - 1].Distance} → {result.Records[i].Distance}");
 
-        Assert.Equal(result.Report.UsedTrackLengthMeters, result.Records[^1].Distance, 0.0001);
+        // The last record carries the whole sum: the metres the estimated zone drew from the
+        // chosen length, plus the surplus the measured zone's own positions added (AD-26).
+        Assert.Equal(
+            result.Report.UsedTrackLengthMeters + AlignmentOptionsTests.ExpectedMeasuredZoneSurplus,
+            result.Records[^1].Distance,
+            0.01);
 
-        // Exactly on it, and not before it. An interpolation still aimed at the whole track would
-        // run into the monotonicity clamp partway through the estimated zone and hold the athlete
-        // at the finish distance for the last several minutes: the same total, the same monotone
-        // series, and a file saying they stood still to the end (AD-17).
+        // And the series is still climbing when it gets there, rather than having arrived early.
+        // An interpolation aimed past the chosen length would run into the clamp partway through
+        // the estimated zone and hold the athlete still for the last several minutes: the same
+        // total, the same monotone series, and a file saying they stopped before the end (AD-17).
         Assert.True(
-            result.Records[^2].Distance < result.Report.UsedTrackLengthMeters,
+            result.Records[^2].Distance < result.Records[^1].Distance,
             $"the finish distance was already reached one record early, at "
                 + $"{result.Records[^2].Distance:F1} m");
 
@@ -385,10 +408,14 @@ public class TrackLengthTests
 
         // One owner for the number (AD-16): the summary settles it, the report carries it and the
         // file transcribes it. Three values that agree only by accident would be three owners.
-        Assert.Equal(result.Report.UsedTrackLengthMeters, result.Summary.Total.DistanceMeters, 0.001);
-        Assert.Equal(result.Report.UsedTrackLengthMeters, result.Report.RepairedDistanceMeters, 0.001);
+        // The number is the repaired distance and no longer the chosen length, which it is past by
+        // the measured zone's own surplus (AD-26).
+        var expected = result.Report.UsedTrackLengthMeters
+            + AlignmentOptionsTests.ExpectedMeasuredZoneSurplus;
+        Assert.Equal(expected, result.Summary.Total.DistanceMeters, 0.01);
+        Assert.Equal(expected, result.Report.RepairedDistanceMeters, 0.01);
         Assert.NotNull(session.DistanceMeters);
-        Assert.Equal(result.Report.UsedTrackLengthMeters, session.DistanceMeters!.Value, 1.0);
+        Assert.Equal(expected, session.DistanceMeters!.Value, 1.0);
     }
 
     [Theory]

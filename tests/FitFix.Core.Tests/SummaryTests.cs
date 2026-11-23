@@ -260,9 +260,9 @@ public class SummaryTests
     [Fact]
     public void The_maximum_speed_never_exceeds_the_sports_cap()
     {
-        // The forced finish pays a whole shortfall at the last record (AD-8), so the final seconds
-        // of a repaired series can ramp far past anything the athlete ran — and a value over
-        // 65.535 m/s would wrap the file's own `uint16`. The cap comes from the options (AD-10).
+        // A record faster than the sport can go is a defect upstream rather than the athlete's
+        // fastest second — and a value over 65.535 m/s would wrap the file's own `uint16`. The cap
+        // comes from the options (AD-10).
         var cap = SyntheticRun.Options.MaxSpeedMetersPerSecond;
 
         var sprint = Hand(
@@ -275,17 +275,17 @@ public class SummaryTests
         Assert.True(sprint.Records.Max(record => record.Speed) > cap);
         Assert.Equal(3.0, summary.Total.MaximumSpeedMetersPerSecond!.Value, 1e-9);
 
-        // And on a real repair, where the ramp at the finish is the thing being kept out.
+        // And on a real repair there is no such record left to keep out. Until story 1.12 the
+        // finish was pinned to the chosen track length and paid the whole shortfall at the last
+        // record, which ramped the final seconds far past anything the athlete ran; the distance
+        // is a sum now, so nothing is owed at the line (AD-26). The filter above still stands for
+        // a defective series, and the summary of an honest one states the series' own maximum.
         var run = SyntheticRun.CreateWithPause(SyntheticRun.PauseStartSeconds, SyntheticRun.PauseSeconds);
         var result = RepairService.Repair(run.Original, run.ReferenceTrack);
+        var fastest = result.Records.Max(record => record.Speed);
 
-        Assert.True(
-            result.Records.Max(record => record.Speed) > cap,
-            "the repaired series no longer ramps past the cap, so this proves nothing");
-        Assert.True(
-            result.Summary.Total.MaximumSpeedMetersPerSecond!.Value <= cap,
-            $"the summary states a maximum of {result.Summary.Total.MaximumSpeedMetersPerSecond} m/s "
-                + $"against a cap of {cap} m/s");
+        Assert.True(fastest <= cap, $"a repaired second reached {fastest:F2} m/s past the {cap} m/s cap");
+        Assert.Equal(fastest, result.Summary.Total.MaximumSpeedMetersPerSecond!.Value, 1e-9);
     }
 
     // --- The climb.

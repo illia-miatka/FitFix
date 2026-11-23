@@ -117,9 +117,25 @@ public static class RepairService
             .Select(anchor => cleaned.MovingSecondsFromStart(anchor.TimeSeconds))
             .ToArray();
 
-        var distances = InterpolateDistances(movingTimes, anchorMovingTimes, alignment.Anchors);
-        Smooth(distances, times, PauseBlocks(cleaned), alignment.Zones, options);
-        EnforceMonotonicity(distances, times, length.Used, options);
+        // Which records the Original's own GPS spoke for, in the zones' own terms (AD-25, AD-26):
+        // those keep the watch's geometry, and only the rest is drawn from the track.
+        var measuredPosition = MeasuredPositions(times, alignment.Zones);
+
+        // Where each record falls along the reference track. The estimated zones read both their
+        // geometry and their increment from this series; a measured zone reads it only where the
+        // watch left no position of its own (AD-26). It is this series, and not the repaired
+        // distance, that the chosen track length bounds — the only metres taken from the track are
+        // the ones the estimated zones draw from it (AD-17).
+        var trackDistances = InterpolateDistances(movingTimes, anchorMovingTimes, alignment.Anchors);
+        Smooth(trackDistances, times, PauseBlocks(cleaned), measuredPosition, options);
+        EnforceMonotonicity(trackDistances, length.Used);
+
+        // The repaired distance is a sum rather than a position along the track (AD-26): a measured
+        // second is worth the metres between the watch's own two positions, an estimated one the
+        // metres the track holds between the anchors bounding its zone. Monotonicity is verified
+        // after the smoothing that precedes it, never instead of it (AD-8).
+        var distances = Accumulate(records, trackDistances, movingTimes, measuredPosition);
+        EnforceMonotonicity(distances);
 
         // Speed is a distance over the time the athlete was moving for, never over the clock, and
         // a record a pause covers states no speed at all (FR-5, AD-7).
@@ -130,14 +146,23 @@ public static class RepairService
         for (var i = 0; i < records.Count; i++)
         {
             var source = records[i];
-            var position = track.At(distances[i]);
+
+            // The point of the story: where the watch was telling the truth, its own coordinates
+            // and its own altitude stand — a route drawn in an editor cuts corners and does not
+            // know which side of the path the athlete ran on (AD-26). A measured record the
+            // cleaning left without a position has nothing of its own to keep, so it falls back to
+            // the track like an estimated one.
+            var own = measuredPosition[i] ? source.Position : null;
+            var drawn = own is null ? track.At(trackDistances[i]) : default;
 
             repaired.Add(new RepairedRecord
             {
                 Timestamp = source.Timestamp,
-                Latitude = position.Position.Latitude,
-                Longitude = position.Position.Longitude,
-                Altitude = position.Altitude is { } altitude ? altitude + altitudeOffset : source.Altitude,
+                Latitude = own?.Latitude ?? drawn.Position.Latitude,
+                Longitude = own?.Longitude ?? drawn.Position.Longitude,
+                Altitude = own is not null
+                    ? source.Altitude
+                    : drawn.Altitude is { } altitude ? altitude + altitudeOffset : source.Altitude,
                 Distance = distances[i],
                 Speed = speeds[i],
                 HeartRate = source.HeartRate,
@@ -378,38 +403,35 @@ public static class RepairService
     }
 
     /// <summary>
-    /// Симетричне ковзне середнє: вузьке у Надійній зоні, широке в Розрахованій,
-    /// де лінійна інтерполяція дає злами на Якорях. The width is chosen per record from the
-    /// <see cref="Alignment.Zones"/> the record falls in, so every estimated stretch is widened —
-    /// not only the one after a single boundary, which left the kinks inside a dropout that later
-    /// recovered exactly as sharp as the interpolation made them (AD-21). The window is clipped at
-    /// pause boundaries, so the records before a pause are smoothed against their own side of it
-    /// and no record inside one gains distance from the movement outside. Monotonicity is verified
-    /// after this, never instead of it (AD-8).
+    /// Симетричне ковзне середнє в Розрахованих зонах, де лінійна інтерполяція дає злами на
+    /// Якорях. Every estimated stretch is widened and not only the one after a single boundary,
+    /// which left the kinks inside a dropout that later recovered exactly as sharp as the
+    /// interpolation made them (AD-21). The window is clipped at pause boundaries, so the records
+    /// before a pause are smoothed against their own side of it and no record inside one gains
+    /// distance from the movement outside. Monotonicity is verified after this, never instead of
+    /// it (AD-8).
+    /// <para>
+    /// A record whose position the GPS measured is left exactly as it is: smoothing it would put
+    /// an approximation back where this story has just taken one away, and the jitter in a real
+    /// position is what the watch saw (AD-26). Inside an estimated zone the series is an
+    /// interpolation already, and smoothing it is what keeps the kinks out.
+    /// </para>
     /// </summary>
     private static void Smooth(
         double[] distances,
         double[] times,
         int[] blocks,
-        IReadOnlyList<TrustZone> zones,
+        bool[] measuredPosition,
         AlignmentOptions options)
     {
         var raw = (double[])distances.Clone();
-        // The records rise through the activity and so do the zones, so the walk is one pass over
-        // both rather than a search per record.
-        var zone = 0;
 
         for (var i = 0; i < distances.Length; i++)
         {
-            while (zone < zones.Count - 1 && times[i] > zones[zone].ToSeconds)
-                zone++;
+            if (measuredPosition[i])
+                continue;
 
-            // A record on a boundary is smoothed as part of the zone that ends there, which is
-            // what keeps the last measured second narrow. An alignment with no zone at all
-            // measured nothing, so the wide window is the honest one.
-            var halfWidth = zones.Count > 0 && zones[zone].Kind == ZoneKind.Measured
-                ? options.SmoothingSeconds
-                : options.EstimatedZoneSmoothingSeconds;
+            var halfWidth = options.EstimatedZoneSmoothingSeconds;
 
             var low = i;
             while (low > 0 && times[i] - times[low - 1] <= halfWidth && blocks[low - 1] == blocks[i])
@@ -432,47 +454,117 @@ public static class RepairService
     }
 
     /// <summary>
-    /// Гарантує FR-5: функція «час → дистанція» монотонно неспадна, фініш = обрана довжина треку.
-    /// The finish is pinned to <paramref name="chosenTrackLength"/> — the whole track or the part
-    /// of it the Original's time makes plausible (AD-17) — so whatever the series was short by is
-    /// paid at the last record, which is how a wrongly scaled interpolation can look like a
-    /// correct total. The payment is therefore bounded by what the athlete could cover in that
-    /// last interval: anything more is a defect upstream, and it says so instead of shipping a
-    /// teleport at the finish line (AD-8).
+    /// Which records keep the Original's own geometry: the ones inside a Виміряна зона (AD-26). A
+    /// record on a zone's <see cref="TrustZone.ToSeconds"/> belongs to the zone that ends there,
+    /// exactly as the smoothing reads it, so a boundary second is measured rather than estimated
+    /// and the two kinds never claim it twice. An alignment with no zone at all measured nothing,
+    /// so every record there is drawn from the track.
+    /// </summary>
+    private static bool[] MeasuredPositions(double[] times, IReadOnlyList<TrustZone> zones)
+    {
+        var measured = new bool[times.Length];
+        if (zones.Count == 0)
+            return measured;
+
+        // The records rise through the activity and so do the zones, so the walk is one pass over
+        // both rather than a search per record.
+        var zone = 0;
+        for (var i = 0; i < times.Length; i++)
+        {
+            while (zone < zones.Count - 1 && times[i] > zones[zone].ToSeconds)
+                zone++;
+
+            measured[i] = zones[zone].Kind == ZoneKind.Measured;
+        }
+
+        return measured;
+    }
+
+    /// <summary>
+    /// The repaired distance series, metre by metre (AD-26). Each second is worth what its own
+    /// source says it is worth: inside a Виміряна зона the geodesic distance between the watch's
+    /// two positions, inside a Розрахована зона the increment the track holds across that second.
+    /// The total is therefore a sum and need not equal the track's length — the inflation real GPS
+    /// jitter adds on a measured stretch is the accepted price of real data.
     /// <para>
-    /// The running maximum is clamped to the same length, so a trimmed track takes the anchors the
-    /// GPS measured past it down with it rather than leaving a series that overshoots its own
-    /// finish.
+    /// An increment and never an absolute position along the track: taking the track's own
+    /// cumulative figure at the start of an estimated zone, while the measured side had accrued
+    /// its own, would show up as a jump of tens or hundreds of metres in one second. Adding only
+    /// the difference leaves both sources' totals intact and meets in the middle.
+    /// </para>
+    /// <para>
+    /// A second no moving time passed in earns nothing, in either kind of zone: inside a pause the
+    /// watch's own jitter would otherwise buy metres the athlete stood still for (FR-5, AD-7). The
+    /// measure is <paramref name="movingTimes"/>, the one owner of that arithmetic, rather than a
+    /// second reading of the pause intervals here.
     /// </para>
     /// </summary>
-    private static void EnforceMonotonicity(
-        double[] distances,
-        double[] times,
-        double chosenTrackLength,
-        AlignmentOptions options)
+    private static double[] Accumulate(
+        IReadOnlyList<ActivityRecord> records,
+        double[] trackDistances,
+        double[] movingTimes,
+        bool[] measuredPosition)
+    {
+        var distances = new double[records.Count];
+
+        for (var i = 1; i < records.Count; i++)
+        {
+            double step;
+
+            if (movingTimes[i] - movingTimes[i - 1] <= 0)
+            {
+                step = 0;
+            }
+            else if (measuredPosition[i]
+                && records[i].Position is { } here
+                && records[i - 1].Position is { } previous)
+            {
+                // The watch measured where it went, so the metres between the two fixes are the
+                // athlete's own. Cleaning has already taken the impossible ones out (AD-25), and
+                // the record on the far side of a seam is an anchor by construction.
+                step = Geo.Distance(previous, here);
+            }
+            else
+            {
+                step = trackDistances[i] - trackDistances[i - 1];
+            }
+
+            distances[i] = distances[i - 1] + Math.Max(0, step);
+        }
+
+        return distances;
+    }
+
+    /// <summary>
+    /// Гарантує AD-8: функція «час → дистанція» монотонно неспадна. The finish is no longer pinned
+    /// to the chosen track length — under AD-26 the total is a sum of two sources and the track's
+    /// length is not the answer it has to come to — so this is the running maximum and nothing
+    /// else. Verified after the smoothing, never instead of it.
+    /// </summary>
+    private static void EnforceMonotonicity(double[] distances)
     {
         var running = 0.0;
         for (var i = 0; i < distances.Length; i++)
         {
-            running = Math.Clamp(Math.Max(running, distances[i]), 0, chosenTrackLength);
+            running = Math.Max(running, distances[i]);
             distances[i] = running;
         }
+    }
 
-        var last = distances.Length - 1;
-        var shortfall = chosenTrackLength - distances[last];
-        var interval = last > 0 ? times[last] - times[last - 1] : 0;
-        var plausible = options.MaxSpeedMetersPerSecond * interval + options.SpeedToleranceMeters;
-
-        // Derived from the activity and the track the user offered, so it carries a declared code
-        // rather than a bare exception a shell could only report as an internal error (AD-18).
-        if (shortfall > plausible)
-            throw new MalformedArgumentException(
-                DiagnosticCodes.DistanceSeriesImplausible,
-                $"The repaired series ends {shortfall:F1} m short of the track, and the last " +
-                $"{interval:F0} s cannot cover more than {plausible:F1} m: the distance series is wrong, " +
-                "not the finish.");
-
-        distances[last] = chosenTrackLength;
+    /// <summary>
+    /// The same for the series that says where along the track a record falls, with the chosen
+    /// length as a ceiling (AD-17): the estimated zones draw their metres from here, so a trimmed
+    /// track takes the anchors the GPS measured past it down with it rather than leaving the
+    /// geometry running off the end of the route.
+    /// </summary>
+    private static void EnforceMonotonicity(double[] trackDistances, double chosenTrackLength)
+    {
+        var running = 0.0;
+        for (var i = 0; i < trackDistances.Length; i++)
+        {
+            running = Math.Clamp(Math.Max(running, trackDistances[i]), 0, chosenTrackLength);
+            trackDistances[i] = running;
+        }
     }
 
     /// <summary>
