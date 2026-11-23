@@ -181,6 +181,15 @@ public static class DiagnosticCodes
     /// </summary>
     public const string TooManyFiles = "TOO_MANY_FILES";
 
+    /// <summary>
+    /// A repair request named a track-length mode the service does not know (HTTP 400): neither
+    /// <c>plausible</c> nor <c>full</c>. Its own code because guessing is the one thing AD-17
+    /// forbids here — a misspelt mode read as "trust the track" would hand the athlete a distance
+    /// they never confirmed, and one read as the conservative mode would silently ignore the
+    /// confirmation they did give. Refusing says which of the two happened.
+    /// </summary>
+    public const string TrackLengthModeInvalid = "TRACK_LENGTH_MODE_INVALID";
+
     private static readonly Dictionary<string, DiagnosticSeverity> Severities = new(StringComparer.Ordinal)
     {
         // Warnings. A stalled GPS is the normal case this service exists for, and few anchors
@@ -219,7 +228,8 @@ public static class DiagnosticCodes
         [ClientDisconnected] = DiagnosticSeverity.Blocking,
         [InspectRoleInvalid] = DiagnosticSeverity.Blocking,
         [FileMissing] = DiagnosticSeverity.Blocking,
-        [TooManyFiles] = DiagnosticSeverity.Blocking
+        [TooManyFiles] = DiagnosticSeverity.Blocking,
+        [TrackLengthModeInvalid] = DiagnosticSeverity.Blocking
     };
 
     /// <summary>Every declared code. The UI dictionary's key set must equal this set (AD-18).</summary>

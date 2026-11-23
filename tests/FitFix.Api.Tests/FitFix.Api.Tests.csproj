@@ -32,6 +32,9 @@
          drift from this one. Only the fixtures are shared — no test of the core suite runs here. -->
     <Compile Include="..\FitFix.Core.Tests\Fixtures\SyntheticRun.cs" Link="Fixtures\SyntheticRun.cs" />
     <Compile Include="..\FitFix.Core.Tests\Fixtures\SyntheticFitBuilder.cs" Link="Fixtures\SyntheticFitBuilder.cs" />
+    <!-- Reads the summary messages back out of a written FIT, which is how an HTTP test checks
+         that the base64 in the answer really is the file the report describes. -->
+    <Compile Include="..\FitFix.Core.Tests\Fixtures\FitMessageInspector.cs" Link="Fixtures\FitMessageInspector.cs" />
   </ItemGroup>
 
   <ItemGroup>

@@ -7,10 +7,10 @@ using Microsoft.AspNetCore.Http.Features;
 namespace FitFix.Api;
 
 /// <summary>
-/// The service itself: the upload bound, the failure contract (Story 2.1), the health endpoint
-/// and the inspect endpoint (Story 2.2). <c>Program</c> runs it; the HTTP tests host it with
-/// probe endpoints of their own, so the pipeline they exercise is this one and not a copy of it.
-/// The repair endpoint arrives in Story 2.3, the built SPA in Story 2.8.
+/// The service itself: the upload bound, the failure contract (Story 2.1), the health endpoint,
+/// the inspect endpoint (Story 2.2) and the repair endpoint (Story 2.3). <c>Program</c> runs it;
+/// the HTTP tests host it with probe endpoints of their own, so the pipeline they exercise is this
+/// one and not a copy of it. The built SPA arrives in Story 2.8.
 /// </summary>
 public static class FitFixApi
 {
@@ -56,8 +56,9 @@ public static class FitFixApi
     }
 
     /// <summary>
-    /// The application: the failure handler, the health endpoint, <c>POST /api/inspect</c>, and
-    /// whatever <paramref name="additionalEndpoints"/> adds. Production adds none — the probes
+    /// The application: the failure handler, the health endpoint, <c>POST /api/inspect</c>,
+    /// <c>POST /api/repair</c>, and whatever <paramref name="additionalEndpoints"/> adds.
+    /// Production adds none — the probes
     /// that raise each kind of failure on demand belong to the test host, not to the shipped
     /// binary.
     /// </summary>
@@ -88,6 +89,10 @@ public static class FitFixApi
         // Story 2.2. Its own refusals travel through the handler above like every other, so the
         // endpoint states what is wrong with a code and never writes a status of its own.
         InspectEndpoint.Map(app);
+
+        // Story 2.3, through the same handler: the repair's own refusals are the core's, each
+        // carrying a code, and the one answer it writes itself is the successful one.
+        RepairEndpoint.Map(app);
 
         additionalEndpoints?.Invoke(app);
 
