@@ -24,7 +24,12 @@ public sealed class ApiHost : IDisposable
     /// <param name="withProbes">
     /// False hosts exactly what production hosts, with no endpoint added for a test's sake.
     /// </param>
-    public ApiHost(string? maxUploadBytes = null, bool withProbes = true)
+    /// <param name="webRoot">
+    /// Where the built SPA sits (Story 2.8). Null leaves the web root at its convention,
+    /// <c>wwwroot</c> under the content root, which no test output has — the state every suite
+    /// but the static one runs in.
+    /// </param>
+    public ApiHost(string? maxUploadBytes = null, bool withProbes = true, string? webRoot = null)
     {
         // Configuration travels as command-line arguments: no environment variable to leak
         // into another test running beside this one. The content root is the output directory,
@@ -33,6 +38,8 @@ public sealed class ApiHost : IDisposable
         List<string> args = [$"--contentRoot={AppContext.BaseDirectory}"];
         if (maxUploadBytes is not null)
             args.Add($"--{UploadLimit.ConfigurationKey}={maxUploadBytes}");
+        if (webRoot is not null)
+            args.Add($"--webroot={webRoot}");
 
         var builder = FitFixApi.CreateBuilder([.. args]);
         builder.WebHost.UseUrls("http://127.0.0.1:0");

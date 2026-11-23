@@ -1,0 +1,32 @@
+# Story 2.8. The build context is the raw material of an image, so it carries only what the
+# build actually reads: src/ for the API and the core, web/ for the page, and the SDK pin.
+# Everything else is either noise in the cache or something that must not be shipped at all.
+
+.git
+.github
+.gitignore
+.claude
+_bmad
+docs
+prototype
+
+# The Dockerfile copies only src/, web/ and the SDK pin, so no test file would be published
+# anyway. The rule is wide because tests/fixtures/private holds real GPS traces of real runs
+# (AD-9): keeping the tree out of the context altogether means a COPY added later cannot reach
+# them even by accident.
+tests
+tests/fixtures/private
+
+# Build output of the host machine. The image builds its own, and a macOS obj/ would poison
+# a Linux restore besides.
+**/bin
+**/obj
+**/node_modules
+**/dist
+
+# Nothing the build reads, and the first two would make every edit to them a cache miss.
+*.md
+Dockerfile
+.dockerignore
+compose.yaml
+.env

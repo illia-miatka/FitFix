@@ -67,7 +67,7 @@ public class FailureContractTests : IDisposable
     public async Task A_404_an_endpoint_chose_is_left_alone()
     {
         // Only routing's own 404 belongs to the failure handler. An endpoint saying a resource
-        // is missing keeps its answer, and so will Story 2.8's index.html fallback.
+        // is missing keeps its answer.
         using var response = await Host.Client.GetAsync("/probe/missing-resource");
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);

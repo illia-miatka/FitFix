@@ -3,19 +3,31 @@ using FitFix.Api.Contracts;
 using FitFix.Core.Diagnostics;
 using Microsoft.AspNetCore.Connections;
 using Microsoft.AspNetCore.Http.Features;
+using Microsoft.Extensions.FileProviders;
 
 namespace FitFix.Api;
 
 /// <summary>
 /// The service itself: the upload bound, the failure contract (Story 2.1), the health endpoint,
-/// the inspect endpoint (Story 2.2) and the repair endpoint (Story 2.3). <c>Program</c> runs it;
-/// the HTTP tests host it with probe endpoints of their own, so the pipeline they exercise is this
-/// one and not a copy of it. The built SPA arrives in Story 2.8.
+/// the inspect endpoint (Story 2.2), the repair endpoint (Story 2.3) and the built SPA beside
+/// them on one origin (Story 2.8). <c>Program</c> runs it; the HTTP tests host it with probe
+/// endpoints of their own, so the pipeline they exercise is this one and not a copy of it.
 /// </summary>
 public static class FitFixApi
 {
     /// <summary>What the request log calls a request that matched no endpoint.</summary>
     private const string UnmatchedRoute = "(unmatched)";
+
+    /// <summary>
+    /// The one prefix that is a contract rather than a page (AD-12). Everything under it
+    /// answers as itself, including a route that matches nothing.
+    /// </summary>
+    private const string ApiPrefix = "/api";
+
+    /// <summary>
+    /// The SPA's entry document, and the only file an unknown path is ever answered with.
+    /// </summary>
+    private const string IndexFile = "index.html";
 
     /// <summary>
     /// What it calls one refused before routing ran. It is not "(unmatched)": nothing looked
@@ -56,9 +68,9 @@ public static class FitFixApi
     }
 
     /// <summary>
-    /// The application: the failure handler, the health endpoint, <c>POST /api/inspect</c>,
-    /// <c>POST /api/repair</c>, and whatever <paramref name="additionalEndpoints"/> adds.
-    /// Production adds none — the probes
+    /// The application: the failure handler, the built SPA, the health endpoint,
+    /// <c>POST /api/inspect</c>, <c>POST /api/repair</c>, and whatever
+    /// <paramref name="additionalEndpoints"/> adds. Production adds none — the probes
     /// that raise each kind of failure on demand belong to the test host, not to the shipped
     /// binary.
     /// </summary>
@@ -84,6 +96,14 @@ public static class FitFixApi
         // matches none, and the body-size refusal Kestrel raises while a handler is reading.
         app.Use((context, next) => HandleAsync(context, next, logger, maxUploadBytes));
 
+        // Story 2.8: the built SPA on the same origin as the API (AD-12). Inside the failure
+        // handler, so a static file that cannot be read still leaves as a problem document.
+        var webRoot = app.Environment.WebRootFileProvider;
+        app.Use((context, next) => ServeSpaAsync(context, next, webRoot));
+        // No UseDefaultFiles: the rewrite above already answers "/" with index.html, and where
+        // there is no index.html there is no default file to find either.
+        app.UseStaticFiles();
+
         app.MapGet("/health", () => Results.Ok(new HealthResponse("ok")));
 
         // Story 2.2. Its own refusals travel through the handler above like every other, so the
@@ -97,6 +117,57 @@ public static class FitFixApi
         additionalEndpoints?.Invoke(app);
 
         return app;
+    }
+
+    /// <summary>
+    /// Hands an unknown path the SPA's entry document, so opening or reloading a deep link
+    /// works (AD-12): the request is rewritten to <c>index.html</c> and the static-file
+    /// middleware below serves it with its own content type and validators.
+    /// </summary>
+    /// <remarks>
+    /// A rewrite and not a mapped fallback endpoint, on purpose. A catch-all endpoint is also a
+    /// candidate for <c>/api/repair</c>, and — carrying no method metadata of its own — it wins
+    /// over that endpoint when the method does not match, which would turn the method refusal
+    /// of AD-22 into a page. Routing has already run by the time this is reached, because
+    /// <c>WebApplication</c> puts its own routing middleware outermost, so a path that matched
+    /// an endpoint is recognised here rather than guessed at.
+    /// </remarks>
+    private static Task ServeSpaAsync(HttpContext context, RequestDelegate next, IFileProvider webRoot)
+    {
+        if (ShouldServeIndex(context, webRoot))
+            context.Request.Path = "/" + IndexFile;
+
+        return next(context);
+    }
+
+    private static bool ShouldServeIndex(HttpContext context, IFileProvider webRoot)
+    {
+        var request = context.Request;
+
+        // Only a navigation can be answered with a page. A POST to an unknown path is not one.
+        if (!HttpMethods.IsGet(request.Method) && !HttpMethods.IsHead(request.Method))
+            return false;
+
+        // An endpoint of ours answers for itself, and so does the method refusal routing
+        // settles when one matches the path but not the verb.
+        if (context.GetEndpoint() is not null)
+            return false;
+
+        // /api is a contract (AD-22): an unknown route under it stays ROUTE_NOT_FOUND. A
+        // client parsing a problem document must never be handed a page instead, or a typo in
+        // a route becomes a mystery.
+        if (request.Path.StartsWithSegments(ApiPrefix))
+            return false;
+
+        // A path naming a file is an asset request, and a missing asset is a 404: answered
+        // with the page, a stale bundle reference would look like a working deployment.
+        if (Path.HasExtension(request.Path.Value))
+            return false;
+
+        // No SPA in the web root — a checkout where the frontend was never built, and every
+        // API test. The request then stays exactly what it is without this story: routing's
+        // own 404, which the failure handler turns into ROUTE_NOT_FOUND.
+        return webRoot.GetFileInfo(IndexFile).Exists;
     }
 
     private static async Task HandleAsync(HttpContext context, RequestDelegate next, ILogger logger, long maxUploadBytes)
@@ -224,9 +295,8 @@ public static class FitFixApi
         if (response.HasStarted || response.StatusCode < StatusCodes.Status400BadRequest || response.ContentLength > 0)
             return null;
 
-        // A 404 an endpoint chose is its own answer: a resource missing inside Story 2.3, or
-        // Story 2.8's index.html fallback. Only routing's own 404, where nothing matched at
-        // all, belongs to this handler.
+        // A 404 an endpoint chose is its own answer: a resource missing inside Story 2.3.
+        // Only routing's own 404, where nothing matched at all, belongs to this handler.
         if (response.StatusCode == StatusCodes.Status404NotFound && context.GetEndpoint() is not null)
             return null;
 
