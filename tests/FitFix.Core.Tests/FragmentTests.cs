@@ -269,6 +269,158 @@ public class FragmentTests
         AssertMonotone(result);
     }
 
+    // --- Story 5.2: the service asks before it treats a track as a fragment.
+
+    [Fact]
+    public void A_detected_fragment_carries_the_blocking_warning_and_names_the_stretch()
+    {
+        var run = SyntheticRun.Create();
+        var fragment = run.WithTrackCovering(TailFragmentFrom, run.TrueRouteLength);
+        var track = fragment.ReferenceTrack;
+
+        var result = RepairService.Repair(fragment.Original, track);
+
+        // Repaired, not refused: AD-22's blocking severity is withheld work and not a refusal, so
+        // the numbers are there and the shell is the one that holds the file back.
+        Assert.Contains(DiagnosticCodes.TrackIsAFragment, result.Report.Warnings);
+        Assert.True(DiagnosticCodes.IsBlocking(DiagnosticCodes.TrackIsAFragment));
+
+        // And the question names the stretch it is about: the seconds of the redrawn zone and the
+        // metres the fragment drew across it (AD-16, AD-27).
+        Assert.True(result.Report.RedrawnSpan is not null, "the report names no redrawn stretch");
+        var span = result.Report.RedrawnSpan!.Value;
+        var redrawn = Assert.Single(result.Report.Zones, zone => zone.Kind == ZoneKind.Estimated);
+        Assert.Equal(redrawn.FromSeconds, span.FromSeconds, 0.001);
+        Assert.Equal(redrawn.ToSeconds, span.ToSeconds, 0.001);
+        Assert.Equal(track.Length, span.DistanceMeters, 0.001);
+        Assert.Equal(result.Alignment.Reach.FromSeconds, span.FromSeconds, 0.001);
+        Assert.Equal(result.Alignment.Reach.ToSeconds, span.ToSeconds, 0.001);
+
+        // The span is the metres the repair took from the drawing, so it is the rise of the
+        // distance series across it — the warning and the file describe one repair.
+        Assert.Equal(
+            span.DistanceMeters,
+            DistanceAt(result, span.ToSeconds) - DistanceAt(result, span.FromSeconds),
+            1.0);
+    }
+
+    [Fact]
+    public void Confirming_the_fragment_changes_nothing_but_the_question()
+    {
+        var run = SyntheticRun.Create();
+        var fragment = run.WithTrackCovering(TailFragmentFrom, run.TrueRouteLength);
+        var track = fragment.ReferenceTrack;
+
+        var asked = RepairService.Repair(fragment.Original, track);
+        var confirmed = RepairService.Repair(
+            fragment.Original,
+            track,
+            TrackLengthMode.Plausible,
+            TrackCoverageMode.Fragment);
+
+        // Nothing left to ask, and nothing else said differently: a caveat that survives the answer
+        // is what teaches people to click past caveats.
+        Assert.DoesNotContain(DiagnosticCodes.TrackIsAFragment, confirmed.Report.Warnings);
+        Assert.Equal(
+            asked.Report.Warnings.Where(code => code != DiagnosticCodes.TrackIsAFragment),
+            confirmed.Report.Warnings);
+
+        // The same repair, record for record: confirming answers the question the service asked
+        // rather than changing what it did.
+        Assert.Equal(asked.Report.RedrawnSpan, confirmed.Report.RedrawnSpan);
+        Assert.Equal(asked.Report.RepairedDistanceMeters, confirmed.Report.RepairedDistanceMeters, 1e-9);
+        Assert.Equal(asked.Report.Zones, confirmed.Report.Zones);
+        for (var index = 0; index < asked.Records.Count; index++)
+        {
+            Assert.Equal(asked.Records[index].Latitude, confirmed.Records[index].Latitude, 1e-12);
+            Assert.Equal(asked.Records[index].Distance, confirmed.Records[index].Distance, 1e-9);
+        }
+    }
+
+    [Fact]
+    public void A_caller_who_says_the_track_is_the_whole_route_is_never_asked_about_a_fragment()
+    {
+        // The answer a lap course gets when the athlete knows better than the detector: the
+        // fragment question is not asked at all, so the whole-track mechanism lays the drawing over
+        // the activity's own time and the report has no stretch to name (AD-27).
+        var run = SyntheticRun
+            .Create(withGpsFailure: false)
+            .WithoutFixesBetween(MiddleDropoutFrom, MiddleDropoutTo)
+            .WithTrackCovering(MiddleFragmentFrom, MiddleFragmentTo);
+
+        var detected = RepairService.Repair(run.Original, run.ReferenceTrack);
+        var asTheRoute = RepairService.Repair(
+            run.Original,
+            run.ReferenceTrack,
+            TrackLengthMode.Plausible,
+            TrackCoverageMode.WholeRoute);
+
+        Assert.Contains(DiagnosticCodes.TrackIsAFragment, detected.Report.Warnings);
+        Assert.DoesNotContain(DiagnosticCodes.TrackIsAFragment, asTheRoute.Report.Warnings);
+        Assert.Null(asTheRoute.Report.RedrawnSpan);
+
+        // Which is the other mechanism and not merely a silenced warning: a whole track opens on
+        // its own first metre and closes on its last.
+        Assert.True(asTheRoute.Alignment.Reach.OpensAtTrackStart);
+        Assert.True(asTheRoute.Alignment.Reach.ClosesAtTrackEnd);
+        var difference = Math.Abs(
+            detected.Report.RepairedDistanceMeters - asTheRoute.Report.RepairedDistanceMeters);
+        Assert.True(
+            difference > 1.0,
+            $"both modes repaired to the same {asTheRoute.Report.RepairedDistanceMeters:F1} m, so "
+                + "the whole-track mechanism did not run");
+    }
+
+    [Theory]
+    [InlineData(TrackCoverageMode.Detect)]
+    [InlineData(TrackCoverageMode.Fragment)]
+    [InlineData(TrackCoverageMode.WholeRoute)]
+    public void A_whole_track_says_nothing_about_fragments_in_any_mode(TrackCoverageMode coverage)
+    {
+        // Nothing of this story is visible on a pair it is not about — including under the
+        // confirming mode, which answers the question the service asks and does not make a route
+        // into a stretch of itself.
+        var run = SyntheticRun.Create();
+
+        var result = RepairService.Repair(
+            run.Original,
+            run.ReferenceTrack,
+            TrackLengthMode.Plausible,
+            coverage);
+
+        Assert.DoesNotContain(DiagnosticCodes.TrackIsAFragment, result.Report.Warnings);
+        Assert.Null(result.Report.RedrawnSpan);
+        Assert.Equal(AlignmentOptionsTests.ExpectedRepairedDistance, result.Report.RepairedDistanceMeters, 0.01);
+    }
+
+    [Fact]
+    public void The_composition_root_carries_the_coverage_mode_through()
+    {
+        // End to end on bytes, through the one composition the CLI and the API share: a mode that
+        // stopped at the root would leave both shells unable to confirm anything (AD-10).
+        var run = SyntheticRun.Create();
+        var fragment = run.WithTrackCovering(TailFragmentFrom, run.TrueRouteLength);
+        var originalBytes = SyntheticFitBuilder.WriteActivity(fragment.Original);
+        var trackBytes = SyntheticFitBuilder.WriteTrack(fragment.TrackPoints, SyntheticRun.StartTime);
+
+        using var askedOriginal = new MemoryStream(originalBytes);
+        using var askedTrack = new MemoryStream(trackBytes);
+        var asked = RepairPipeline.Repair(askedOriginal, askedTrack);
+
+        using var confirmedOriginal = new MemoryStream(originalBytes);
+        using var confirmedTrack = new MemoryStream(trackBytes);
+        var confirmed = RepairPipeline.Repair(
+            confirmedOriginal,
+            confirmedTrack,
+            TrackLengthMode.Plausible,
+            TrackCoverageMode.Fragment);
+
+        Assert.Contains(DiagnosticCodes.TrackIsAFragment, asked.Report.Warnings);
+        Assert.DoesNotContain(DiagnosticCodes.TrackIsAFragment, confirmed.Report.Warnings);
+        Assert.Equal(asked.Report.RedrawnSpan, confirmed.Report.RedrawnSpan);
+        Assert.Equal(asked.Report.RepairedDistanceMeters, confirmed.Report.RepairedDistanceMeters, 1e-9);
+    }
+
     // --- Refusals and the threshold.
 
     [Fact]

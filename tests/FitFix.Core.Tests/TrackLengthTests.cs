@@ -95,7 +95,7 @@ public class TrackLengthTests
         var run = SyntheticRun.Create().WithTrackDrawn(SyntheticRun.LoopsPastTwiceThePlausibleDistance);
         var track = run.ReferenceTrack;
 
-        var trusted = RepairService.Repair(run.Original, track, TrackLengthMode.Full);
+        var trusted = RepairService.Repair(run.Original, track, TrackLengthMode.Full, TrackCoverageMode.Detect);
 
         Assert.Equal(track.Length, trusted.Report.UsedTrackLengthMeters, 0.001);
         // The whole of the five-lap track is drawn from, and the measured zone's own positions add
@@ -367,7 +367,7 @@ public class TrackLengthTests
 
         // The shortfall guard of Story 1.5 is the one thing that could refuse this outright: it
         // would throw DISTANCE_SERIES_IMPLAUSIBLE rather than return.
-        var result = RepairService.Repair(run.Original, run.ReferenceTrack, mode);
+        var result = RepairService.Repair(run.Original, run.ReferenceTrack, mode, TrackCoverageMode.Detect);
 
         for (var i = 1; i < result.Records.Count; i++)
             Assert.True(
@@ -401,7 +401,7 @@ public class TrackLengthTests
     {
         var run = SyntheticRun.Create().WithTrackDrawn(SyntheticRun.LoopsPastTwiceThePlausibleDistance);
 
-        var result = RepairService.Repair(run.Original, run.ReferenceTrack, mode);
+        var result = RepairService.Repair(run.Original, run.ReferenceTrack, mode, TrackCoverageMode.Detect);
         var session = FitMessageInspector
             .InspectTiming(FitActivityWriter.WriteToArray(result, utcOffsetSeconds: 0))
             .Session;
@@ -499,7 +499,7 @@ public class TrackLengthTests
 
         using var original = new MemoryStream(originalBytes);
         using var track = new MemoryStream(trackBytes);
-        var result = RepairPipeline.Repair(original, track, mode);
+        var result = RepairPipeline.Repair(original, track, mode, TrackCoverageMode.Detect);
 
         Assert.Contains(DiagnosticCodes.TrackLongerThanActivity, result.Report.Warnings);
         Assert.Equal(
@@ -526,11 +526,11 @@ public class TrackLengthTests
             trackPath,
             SyntheticFitBuilder.WriteTrack(run.TrackPoints, run.Original.StartTime));
 
-        var fromFiles = RepairPipeline.RepairFiles(originalPath, trackPath, mode);
+        var fromFiles = RepairPipeline.RepairFiles(originalPath, trackPath, mode, TrackCoverageMode.Detect);
 
         using var original = System.IO.File.OpenRead(originalPath);
         using var track = System.IO.File.OpenRead(trackPath);
-        var fromStreams = RepairPipeline.Repair(original, track, mode);
+        var fromStreams = RepairPipeline.Repair(original, track, mode, TrackCoverageMode.Detect);
 
         Assert.Equal(
             fromStreams.Report.UsedTrackLengthMeters,

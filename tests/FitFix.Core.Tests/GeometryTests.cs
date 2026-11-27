@@ -216,7 +216,11 @@ public class GeometryTests
             .WithTrackDrawn(SyntheticRun.LoopsPastTwiceThePlausibleDistance);
 
         var refusal = Assert.Throws<MalformedArgumentException>(
-            () => RepairService.Repair(run.Original, run.ReferenceTrack, TrackLengthMode.Full));
+            () => RepairService.Repair(
+                run.Original,
+                run.ReferenceTrack,
+                TrackLengthMode.Full,
+                TrackCoverageMode.Detect));
 
         Assert.Equal(DiagnosticCodes.DistanceSeriesImplausible, refusal.Code);
     }

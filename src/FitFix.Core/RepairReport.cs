@@ -1,6 +1,29 @@
 namespace FitFix.Core;
 
 /// <summary>
+/// The stretch of the activity a fragment redrew (AD-27): when it begins and ends, in seconds from
+/// the activity's start, and the metres the fragment contributed across it. The span the question of
+/// Story 5.2 is about — "we redrew these 320 seconds and these 1.2 km" — and the one the interface
+/// shows before the file is anybody's.
+/// <para>
+/// Carried by the report rather than re-derived from <see cref="Alignment.Reach"/> by each shell
+/// (AD-16): the CLI prints it in a sentence and the result screen states it in a callout, and two
+/// readings of the same alignment are two numbers free to disagree about one repair.
+/// </para>
+/// </summary>
+/// <param name="FromSeconds">Where the redrawn stretch begins, s from the activity's start.</param>
+/// <param name="ToSeconds">Where it ends, s from the activity's start.</param>
+/// <param name="DistanceMeters">
+/// The metres the fragment holds between its two attach points — its own whole length, because a
+/// fragment is used whole or not at all (AD-17, AD-27). Not the metres the repair's total gained:
+/// what the watch measured before and after the span is the athlete's own either way.
+/// </param>
+public readonly record struct RedrawnSpan(
+    double FromSeconds,
+    double ToSeconds,
+    double DistanceMeters);
+
+/// <summary>
 /// The report of one repair — what a shell shows as the "before and after" preview (PRD §4.3).
 /// Every number here is settled when the report is built, most of them copied from the summary
 /// the core computed (AD-16): the report carries finished values and derives none, so the CLI, the
@@ -68,6 +91,14 @@ public sealed record RepairReport
     /// would call the kilometre whose signal came back estimated.
     /// </summary>
     public required IReadOnlyList<TrustZone> Zones { get; init; }
+
+    /// <summary>
+    /// The stretch a fragment of the route redrew, or <c>null</c> when the track covered the whole
+    /// activity and nothing was redrawn from a piece of it (AD-27). Present in both coverage modes
+    /// that use a fragment: confirming one changes who was asked, not what was done, so a shell
+    /// showing a confirmed repair can still say which seconds came from the drawing.
+    /// </summary>
+    public required RedrawnSpan? RedrawnSpan { get; init; }
 
     /// <summary>
     /// The share of the activity whose position was measured by anchors — the measured

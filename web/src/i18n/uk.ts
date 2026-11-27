@@ -29,6 +29,10 @@ export const codeTexts = {
     'Трек починається далеко від місця, де почалося тренування. Схоже, це різні маршрути — перевір, чи не переплутав файли.',
   TRACK_LONGER_THAN_ACTIVITY:
     'Трек довший, ніж можна пройти за час цього тренування. Підтвердь, що трек правильний, — інакше ми зупинимося на правдоподібній частині.',
+  TRACK_IS_A_FRAGMENT:
+    'Трек покриває лише частину маршруту, тож ми перемалювали одну ділянку тренування, а решту ' +
+    'лишили такою, якою її записав годинник. Перевір ділянку нижче: якщо це не вона — схоже, ' +
+    'трек не від цього забігу.',
 
   // --- Errors: the core refuses the input.
   NOT_A_FIT_FILE:
@@ -77,6 +81,8 @@ export const codeTexts = {
   TOO_MANY_FILES: 'В одну зону можна додати лише один файл.',
   TRACK_LENGTH_MODE_INVALID:
     'Невідомий режим довжини треку. Онови сторінку й спробуй ще раз.',
+  TRACK_COVERAGE_MODE_INVALID:
+    'Невідомий режим покриття треку. Онови сторінку й спробуй ще раз.',
 } as const;
 
 /** A code the interface can look up — the keys of {@link codeTexts}, nothing wider. */
@@ -227,6 +233,22 @@ export const uk = {
     warnings: 'Попередження',
     blocking: 'Важливо',
     info: 'До уваги',
+
+    /**
+     * The fragment gate (Story 5.2): which stretch was redrawn, the confirmation it waits for, and
+     * what is being withheld meanwhile. The numbers themselves come from the answer — `redrawn` is
+     * the label beside them, never a sentence with a number in it (AD-14).
+     */
+    redrawn: 'Перемальована ділянка',
+    /** Why there is no file to take yet. Said once, under the callout, not inside the button. */
+    withheld: 'Файл буде доступний, щойно підтвердиш ділянку.',
+    confirmFragment: 'Так, це потрібна ділянка',
+    /** The other answer: the detector was wrong and the track is the whole route after all. */
+    rejectFragment: 'Ні, це цілий маршрут',
+    /** The button while the repair is being asked again with the confirmation (AD-22). */
+    confirming: 'Підтверджую…',
+    /** The repeated request never arrived or was refused; the result on screen is untouched. */
+    confirmFailed: 'Не вдалося підтвердити ділянку. Спробуй ще раз.',
 
     download: 'Завантажити FIT',
     startAgain: 'Почати знову',

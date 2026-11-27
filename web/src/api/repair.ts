@@ -31,12 +31,23 @@ const trackField = 'track';
 /** `RepairEndpoint.TrackLengthModeField` — absent means the conservative length. */
 const trackLengthModeField = 'trackLengthMode';
 
+/** `RepairEndpoint.TrackCoverageField` — absent means the service decides and asks (AD-27). */
+const trackCoverageField = 'trackCoverage';
+
 /**
  * Which of the two track lengths to end on, as `TrackLengthModes` names them (AD-17). `full` is
  * sent only after the user has answered the `TRACK_LONGER_THAN_ACTIVITY` warning, which is the
  * story that offers that choice — this one never sends it.
  */
 export type TrackLengthMode = 'plausible' | 'full';
+
+/**
+ * What the client knows about how much of the route the track covers, as `TrackCoverageModes`
+ * names them (AD-27). `fragment` is sent when the user has answered the `TRACK_IS_A_FRAGMENT`
+ * warning — the stretch they were shown is the stretch they meant — and `whole` says the track is
+ * the whole route whatever its length suggests, which the result screen offers as the other answer to the fragment question.
+ */
+export type TrackCoverageMode = 'detect' | 'fragment' | 'whole';
 
 /** `OriginalSummaryResponse`: what the device itself recorded. */
 export interface OriginalSummary {
@@ -86,9 +97,20 @@ export interface TrustZone {
 }
 
 /**
- * `RepairWarningResponse`. The severity decides how loudly the warning is shown, and from Story
- * 1.8 onwards the download gate too (AD-22); the text itself is the dictionary's, keyed by the
- * code (AD-18).
+ * `RedrawnSpanResponse`: the stretch a fragment of the route redrew, in the same seconds the zones
+ * and the series are stated in, and the metres the fragment drew there (AD-27). Null on the report
+ * when the track covered the whole activity.
+ */
+export interface RedrawnSpan {
+  readonly fromSeconds: number;
+  readonly toSeconds: number;
+  readonly distanceMeters: number;
+}
+
+/**
+ * `RepairWarningResponse`. The severity decides how loudly the warning is shown, and for
+ * `TRACK_IS_A_FRAGMENT` the download gate too (AD-22); the text itself is the dictionary's, keyed
+ * by the code (AD-18).
  */
 export interface RepairWarning {
   readonly code: string;
@@ -133,6 +155,8 @@ export interface RepairReport {
   readonly after: RepairedSummary;
   readonly track: TrackLengths;
   readonly zones: readonly TrustZone[];
+  /** The stretch a fragment redrew, or null when the whole route was used (AD-27). */
+  readonly redrawn: RedrawnSpan | null;
   readonly series: RepairSeries;
   readonly warnings: readonly RepairWarning[];
   /** The repaired FIT, base64-encoded. */
@@ -164,16 +188,21 @@ export type RepairOutcome =
  *
  * @param mode Which of the two track lengths to end on. Omitted is the conservative one, which is
  * the only length a request that has asked nobody anything may inherit (AD-17).
+ * @param coverage What is already known about the track's coverage. Omitted leaves the service to
+ * decide and to ask before the file is anybody's, which is the only coverage an unasked request may
+ * inherit (AD-27).
  */
 export async function repair(
   original: File,
   track: File,
   mode?: TrackLengthMode,
+  coverage?: TrackCoverageMode,
 ): Promise<RepairOutcome> {
   const body = new FormData();
   body.append(originalField, original, original.name);
   body.append(trackField, track, track.name);
   if (mode !== undefined) body.append(trackLengthModeField, mode);
+  if (coverage !== undefined) body.append(trackCoverageField, coverage);
 
   let response: Response;
   try {
