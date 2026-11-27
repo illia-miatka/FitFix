@@ -22,22 +22,36 @@ public static class RepairPipeline
         ArgumentNullException.ThrowIfNull(track);
 
         var activity = FitActivityReader.Read(original);
-        return Finish(activity, track, AlignmentOptions.ForSport(activity.Sport), TrackLengthMode.Plausible);
+        return Finish(
+            activity,
+            track,
+            AlignmentOptions.ForSport(activity.Sport),
+            TrackLengthMode.Plausible,
+            TrackCoverageMode.Detect);
     }
 
     /// <summary>
-    /// Repairs with the sport's own thresholds and the stated track-length mode — how the CLI and
-    /// the API reach the mode that trusts an over-long track, once the user has confirmed it
-    /// (AD-17). An explicit overload and not an argument the one above may omit: an omitted
-    /// argument must not be able to change the distance (AD-10).
+    /// Repairs with the sport's own thresholds and the two modes stated — how the CLI and the API
+    /// reach the mode that trusts an over-long track (AD-17) and the one that confirms a fragment
+    /// (AD-27), once the user has answered. An explicit overload and not arguments the one above
+    /// may omit: an omitted argument must not be able to change the distance (AD-10).
     /// </summary>
-    public static RepairResult Repair(Stream original, Stream track, TrackLengthMode trackLengthMode)
+    public static RepairResult Repair(
+        Stream original,
+        Stream track,
+        TrackLengthMode trackLengthMode,
+        TrackCoverageMode trackCoverage)
     {
         ArgumentNullException.ThrowIfNull(original);
         ArgumentNullException.ThrowIfNull(track);
 
         var activity = FitActivityReader.Read(original);
-        return Finish(activity, track, AlignmentOptions.ForSport(activity.Sport), trackLengthMode);
+        return Finish(
+            activity,
+            track,
+            AlignmentOptions.ForSport(activity.Sport),
+            trackLengthMode,
+            trackCoverage);
     }
 
     /// <summary>Repairs with the given thresholds, used for both the track and the alignment.</summary>
@@ -47,21 +61,27 @@ public static class RepairPipeline
         ArgumentNullException.ThrowIfNull(track);
         ArgumentNullException.ThrowIfNull(options);
 
-        return Finish(FitActivityReader.Read(original), track, options, TrackLengthMode.Plausible);
+        return Finish(
+            FitActivityReader.Read(original),
+            track,
+            options,
+            TrackLengthMode.Plausible,
+            TrackCoverageMode.Detect);
     }
 
-    /// <inheritdoc cref="Repair(Stream, Stream, TrackLengthMode)"/>
+    /// <inheritdoc cref="Repair(Stream, Stream, TrackLengthMode, TrackCoverageMode)"/>
     public static RepairResult Repair(
         Stream original,
         Stream track,
         AlignmentOptions options,
-        TrackLengthMode trackLengthMode)
+        TrackLengthMode trackLengthMode,
+        TrackCoverageMode trackCoverage)
     {
         ArgumentNullException.ThrowIfNull(original);
         ArgumentNullException.ThrowIfNull(track);
         ArgumentNullException.ThrowIfNull(options);
 
-        return Finish(FitActivityReader.Read(original), track, options, trackLengthMode);
+        return Finish(FitActivityReader.Read(original), track, options, trackLengthMode, trackCoverage);
     }
 
     /// <inheritdoc cref="Repair(Stream, Stream)"/>
@@ -75,15 +95,19 @@ public static class RepairPipeline
         return Repair(original, track);
     }
 
-    /// <inheritdoc cref="Repair(Stream, Stream, TrackLengthMode)"/>
-    public static RepairResult RepairFiles(string originalPath, string trackPath, TrackLengthMode trackLengthMode)
+    /// <inheritdoc cref="Repair(Stream, Stream, TrackLengthMode, TrackCoverageMode)"/>
+    public static RepairResult RepairFiles(
+        string originalPath,
+        string trackPath,
+        TrackLengthMode trackLengthMode,
+        TrackCoverageMode trackCoverage)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(originalPath);
         ArgumentException.ThrowIfNullOrWhiteSpace(trackPath);
 
         using var original = System.IO.File.OpenRead(originalPath);
         using var track = System.IO.File.OpenRead(trackPath);
-        return Repair(original, track, trackLengthMode);
+        return Repair(original, track, trackLengthMode, trackCoverage);
     }
 
     /// <inheritdoc cref="Repair(Stream, Stream, AlignmentOptions)"/>
@@ -98,12 +122,13 @@ public static class RepairPipeline
         return Repair(original, track, options);
     }
 
-    /// <inheritdoc cref="Repair(Stream, Stream, AlignmentOptions, TrackLengthMode)"/>
+    /// <inheritdoc cref="Repair(Stream, Stream, AlignmentOptions, TrackLengthMode, TrackCoverageMode)"/>
     public static RepairResult RepairFiles(
         string originalPath,
         string trackPath,
         AlignmentOptions options,
-        TrackLengthMode trackLengthMode)
+        TrackLengthMode trackLengthMode,
+        TrackCoverageMode trackCoverage)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(originalPath);
         ArgumentException.ThrowIfNullOrWhiteSpace(trackPath);
@@ -111,17 +136,19 @@ public static class RepairPipeline
 
         using var original = System.IO.File.OpenRead(originalPath);
         using var track = System.IO.File.OpenRead(trackPath);
-        return Repair(original, track, options, trackLengthMode);
+        return Repair(original, track, options, trackLengthMode, trackCoverage);
     }
 
     private static RepairResult Finish(
         OriginalActivity activity,
         Stream track,
         AlignmentOptions options,
-        TrackLengthMode trackLengthMode) =>
+        TrackLengthMode trackLengthMode,
+        TrackCoverageMode trackCoverage) =>
         RepairService.Repair(
             activity,
             TrackReader.ReadReferenceTrack(track, options),
             options,
-            trackLengthMode);
+            trackLengthMode,
+            trackCoverage);
 }

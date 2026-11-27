@@ -18,42 +18,55 @@ public static class RepairService
     {
         ArgumentNullException.ThrowIfNull(original);
 
-        return Repair(original, track, AlignmentOptions.ForSport(original.Sport), TrackLengthMode.Plausible);
+        return Repair(
+            original,
+            track,
+            AlignmentOptions.ForSport(original.Sport),
+            TrackLengthMode.Plausible,
+            TrackCoverageMode.Detect);
     }
 
     /// <summary>
-    /// Repairs with the thresholds of the activity's own sport and the stated track-length mode —
-    /// the overload a shell calls once the user has confirmed that an over-long track is right
-    /// (AD-17). An explicit overload rather than an argument the previous one may omit: an omitted
-    /// argument must not be able to change the distance (AD-10).
+    /// Repairs with the thresholds of the activity's own sport and the two modes stated — the
+    /// overload a shell calls once the user has confirmed that an over-long track is right (AD-17)
+    /// or that a short one is the stretch they meant (AD-27). An explicit overload rather than
+    /// arguments the previous one may omit: an omitted argument must not be able to change the
+    /// distance, nor to answer a question on the athlete's behalf (AD-10, AD-22).
     /// </summary>
     public static RepairResult Repair(
         OriginalActivity original,
         ReferenceTrack track,
-        TrackLengthMode trackLengthMode)
+        TrackLengthMode trackLengthMode,
+        TrackCoverageMode trackCoverage)
     {
         ArgumentNullException.ThrowIfNull(original);
 
-        return Repair(original, track, AlignmentOptions.ForSport(original.Sport), trackLengthMode);
+        return Repair(
+            original,
+            track,
+            AlignmentOptions.ForSport(original.Sport),
+            trackLengthMode,
+            trackCoverage);
     }
 
     /// <summary>
     /// Repairs the activity with the given thresholds, the only tuning source (AD-10), ending on
-    /// the conservative length (AD-17).
+    /// the conservative length (AD-17) and deciding the track's coverage for itself (AD-27).
     /// </summary>
     public static RepairResult Repair(OriginalActivity original, ReferenceTrack track, AlignmentOptions options) =>
-        Repair(original, track, options, TrackLengthMode.Plausible);
+        Repair(original, track, options, TrackLengthMode.Plausible, TrackCoverageMode.Detect);
 
     /// <summary>
-    /// Repairs the activity with the given thresholds and the given track-length mode — the one
-    /// implementation every overload above arrives at, so no two entry points can disagree about
-    /// the same files (AD-10).
+    /// Repairs the activity with the given thresholds, the given track-length mode and what the
+    /// caller knows about the track's coverage — the one implementation every overload above
+    /// arrives at, so no two entry points can disagree about the same files (AD-10).
     /// </summary>
     public static RepairResult Repair(
         OriginalActivity original,
         ReferenceTrack track,
         AlignmentOptions options,
-        TrackLengthMode trackLengthMode)
+        TrackLengthMode trackLengthMode,
+        TrackCoverageMode trackCoverage)
     {
         ArgumentNullException.ThrowIfNull(original);
         ArgumentNullException.ThrowIfNull(track);
@@ -95,7 +108,16 @@ public static class RepairService
         // for the other (AD-27): a fragment attaches by its own two endpoints, and a whole track by
         // the chain of anchors between its ends. The stall detector reads the original as it
         // arrived in both, because blanking a burst would otherwise look like a stall.
-        var fragment = Aligner.AttachingFragment(cleaned, believable, track, options);
+        //
+        // Unless the caller has already answered it. `WholeRoute` is the athlete saying "this is
+        // the route I ran, all of it" — a lap course whose fragment-looking track is genuinely the
+        // whole thing — and the question is then not asked at all, rather than asked and overruled
+        // (AD-27). `Fragment` confirms the answer the service would give and silences the warning
+        // below; it does not make a whole track into a stretch, because confirming answers the
+        // service's question instead of replacing its answer.
+        var fragment = trackCoverage == TrackCoverageMode.WholeRoute
+            ? null
+            : Aligner.AttachingFragment(cleaned, believable, track, options);
 
         Alignment alignment;
         ChosenTrackLength length;
@@ -229,6 +251,15 @@ public static class RepairService
             // The zones themselves, not a boundary: which stretches the position was measured over
             // is what a preview has to draw and what the athlete has to be able to read (FR-8).
             Zones = alignment.Zones,
+            // Which seconds a fragment redrew, and the metres it drew there — settled here, once,
+            // for both shells (AD-16, AD-27). Null for a whole track: nothing was redrawn from a
+            // piece of a route, and a zero span would read as a repair that redrew an instant.
+            RedrawnSpan = fragment is null
+                ? null
+                : new RedrawnSpan(
+                    fragment.Reach.FromSeconds,
+                    fragment.Reach.ToSeconds,
+                    track.Length),
             MeasuredFraction = summary.MeasuredFraction,
             OriginalPaceSecondsPerKm = summary.OriginalPaceSecondsPerKilometer,
             RepairedPaceSecondsPerKm = total.PaceSecondsPerKilometer,
@@ -240,7 +271,16 @@ public static class RepairService
             LapCount = summary.Laps.Count,
             ElevationGainMeters = total.ElevationGainMeters,
             ElevationLossMeters = total.ElevationLossMeters,
-            Warnings = WarningsOf(alignment, discardedPositions, length.TrackIsLonger)
+            Warnings = WarningsOf(
+                alignment,
+                discardedPositions,
+                length.TrackIsLonger,
+                // The question Story 5.2 asks: a fragment the service recognised by itself is
+                // repaired and the file withheld until somebody confirms the stretch (AD-22,
+                // AD-27). Confirmed, the very same repair carries no warning — there is nothing
+                // left to ask, and a caveat nobody can act on is what teaches people to click
+                // past caveats.
+                fragment is not null && trackCoverage == TrackCoverageMode.Detect)
         };
 
         return new RepairResult
@@ -257,10 +297,12 @@ public static class RepairService
 
     /// <summary>
     /// The codes the report carries: the alignment's own, preceded by <c>POSITIONS_DISCARDED</c>
-    /// when cleaning threw anything away and by <c>TRACK_LONGER_THAN_ACTIVITY</c> when the track
-    /// outruns the Original's own time (AD-18). Both of those are settled before the alignment, so
-    /// both come first, and a shell can say why the map lost a point instead of leaving
-    /// <c>NO_ORIGINAL_GPS</c> as the only hint after a full discard.
+    /// when cleaning threw anything away, by <c>TRACK_LONGER_THAN_ACTIVITY</c> when the track
+    /// outruns the Original's own time, and by <c>TRACK_IS_A_FRAGMENT</c> when the service decided
+    /// by itself that the track covers one stretch of the route (AD-18). All three are settled
+    /// before or outside the alignment, so all three come first, and a shell can say why the map
+    /// lost a point instead of leaving <c>NO_ORIGINAL_GPS</c> as the only hint after a full
+    /// discard.
     /// <para>
     /// The over-long-track code is reported in <em>both</em> modes: trusting the track changes the
     /// result but does not make the track plausible, and a report that dropped the code would leave
@@ -271,16 +313,19 @@ public static class RepairService
     private static IReadOnlyList<string> WarningsOf(
         Alignment alignment,
         int discardedPositions,
-        bool trackIsLonger)
+        bool trackIsLonger,
+        bool unconfirmedFragment)
     {
-        if (discardedPositions == 0 && !trackIsLonger)
+        if (discardedPositions == 0 && !trackIsLonger && !unconfirmedFragment)
             return alignment.Warnings;
 
-        var warnings = new List<string>(alignment.Warnings.Count + 2);
+        var warnings = new List<string>(alignment.Warnings.Count + 3);
         if (discardedPositions > 0)
             warnings.Add(DiagnosticCodes.PositionsDiscarded);
         if (trackIsLonger)
             warnings.Add(DiagnosticCodes.TrackLongerThanActivity);
+        if (unconfirmedFragment)
+            warnings.Add(DiagnosticCodes.TrackIsAFragment);
         warnings.AddRange(alignment.Warnings);
         return warnings;
     }

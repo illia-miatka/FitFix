@@ -21,6 +21,34 @@ public static class TrackLengthModes
 }
 
 /// <summary>
+/// What the request says it knows about how much of the route the track covers (AD-27). Tokens of
+/// the protocol, matched exactly for the same reason the length modes are: a mode nobody understood
+/// is refused, because both of the ways to guess it decide something only the athlete can. An absent
+/// mode is <see cref="Detect"/> — the service answers the question and asks before acting on its
+/// answer, which is the only coverage a request that has asked nobody anything may inherit.
+/// </summary>
+public static class TrackCoverageModes
+{
+    /// <summary>
+    /// Let the service decide. A track it recognises as a stretch of the route is repaired as one
+    /// and the answer carries <c>TRACK_IS_A_FRAGMENT</c> as a blocking warning.
+    /// </summary>
+    public const string Detect = "detect";
+
+    /// <summary>
+    /// The user has confirmed the stretch, so the same repair comes back without that warning. The
+    /// client sends this after it has shown the warning and the span beside it (AD-22).
+    /// </summary>
+    public const string Fragment = "fragment";
+
+    /// <summary>
+    /// The track is the whole route and must never be read as a piece of one — the answer a lap
+    /// course gets when the athlete knows better than the detector.
+    /// </summary>
+    public const string Whole = "whole";
+}
+
+/// <summary>
 /// The answer to <c>POST /api/repair</c>: everything the result screen and the later preview need
 /// about one repair — the summaries before and after, the two track lengths, the trust zones, the
 /// per-record series, the warnings with their severities and the repaired file itself. Nothing is
@@ -41,6 +69,10 @@ public static class TrackLengthModes
 /// Which stretches of the activity the position was measured over and which were interpolated, in
 /// time order, tiling the elapsed time exactly once (FR-4, FR-8).
 /// </param>
+/// <param name="Redrawn">
+/// The stretch a fragment of the route redrew, or null when the track covered the whole activity
+/// (AD-27).
+/// </param>
 /// <param name="Series">Every per-record series, indexed by the Original's records (AD-5).</param>
 /// <param name="Warnings">
 /// Every warning of the report, each with the severity that decides the download gate (AD-22).
@@ -54,6 +86,7 @@ public sealed record RepairResponse(
     RepairedSummaryResponse After,
     TrackLengthsResponse Track,
     IReadOnlyList<TrustZoneResponse> Zones,
+    RedrawnSpanResponse? Redrawn,
     RepairSeriesResponse Series,
     IReadOnlyList<RepairWarningResponse> Warnings,
     string FitBase64);
@@ -173,6 +206,23 @@ public sealed record TrackLengthsResponse(double LengthMeters, double UsedLength
 /// share a boundary without either claiming the second twice.
 /// </param>
 public sealed record TrustZoneResponse(string Kind, double FromSeconds, double ToSeconds);
+
+/// <summary>
+/// The stretch a fragment of the route redrew (AD-27), in the same seconds the zones and the series
+/// are stated in. Base quantities and no sentence (AD-14): the interface writes "we redrew these
+/// five minutes and this 1.2 km" out of these three numbers, because a server that wrote the
+/// sentence would be writing Ukrainian outside the dictionary (AD-18).
+/// </summary>
+/// <param name="FromSeconds">
+/// Where the redrawn stretch begins, counted from <see cref="OriginalSummaryResponse.StartedAt"/>.
+/// </param>
+/// <param name="ToSeconds">Where it ends, in the same measure.</param>
+/// <param name="DistanceMeters">
+/// The metres the fragment holds across the span — its own whole length, because a fragment is used
+/// whole or not at all. The boundaries match the estimated zone of <see cref="RepairResponse.Zones"/>
+/// exactly, so a client may shade one from the other.
+/// </param>
+public sealed record RedrawnSpanResponse(double FromSeconds, double ToSeconds, double DistanceMeters);
 
 /// <summary>
 /// One warning of the report and what it does to the download (AD-22).

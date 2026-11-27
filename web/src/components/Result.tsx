@@ -1,4 +1,7 @@
-import type { RepairReport, RepairWarning } from '../api/repair';
+import { useState } from 'react';
+
+import type { RedrawnSpan, RepairReport, RepairWarning } from '../api/repair';
+import type { CoverageAnswer } from '../App';
 // The one place a code becomes a sentence (Story 2.7).
 import { codeText } from '../errors';
 import { duration, kilometres, pace } from '../format';
@@ -15,6 +18,12 @@ export interface ResultTexts {
   readonly warnings: string;
   readonly blocking: string;
   readonly info: string;
+  readonly redrawn: string;
+  readonly withheld: string;
+  readonly confirmFragment: string;
+  readonly rejectFragment: string;
+  readonly confirming: string;
+  readonly confirmFailed: string;
   readonly download: string;
   readonly startAgain: string;
   readonly strava: string;
@@ -39,14 +48,32 @@ export interface ResultProps {
   /** `uk.codes` — a warning's sentence, keyed by the code the service returned (AD-18). */
   readonly codes: Readonly<Record<string, string>>;
   readonly onStartAgain: () => void;
+  /**
+   * Repeats the repair with the fragment confirmed, and answers whether the repeat arrived
+   * (Story 5.2). The page owns the two files and the result, so the new answer replaces this one
+   * there; what this component does with a `false` is say so and leave the result standing.
+   */
+  readonly onConfirmFragment: () => Promise<CoverageAnswer>;
+  /** The same question answered the other way: the track is the whole route (Story 5.2). */
+  readonly onUseWholeRoute: () => Promise<CoverageAnswer>;
 }
 
 /** What the saved file is called, as KF-1 names it: `Run_4k_Chabany_fixed.fit`. */
 const fixedSuffix = '_fixed.fit';
 
 /**
+ * `DiagnosticCodes.TrackIsAFragment` — the one blocking code this screen withholds the file for
+ * (AD-22, AD-27). A code and not a sentence, so it is the component's business rather than the
+ * dictionary's (AD-18); the gate is scoped to this code on purpose, because the other blocking
+ * warnings have confirmations of their own that no story has shipped yet.
+ */
+const fragmentCode = 'TRACK_IS_A_FRAGMENT';
+
+/**
  * The result state of EXPERIENCE.md: the warnings as a callout above the numbers, the three
- * metrics as before → after, the file, and the way back to two empty zones.
+ * metrics as before → after, the file, and the way back to two empty zones. A repair the service
+ * made from a fragment of the route holds the file back until the stretch is confirmed, which is
+ * the one question this screen asks (AD-22, AD-27).
  *
  * Every number here is divided or converted in `format.ts` and nowhere else. The contract carries
  * metres and seconds and refuses to carry a pace (AD-14), so the screen computes one; if it did so
@@ -60,8 +87,17 @@ export function Result({
   units,
   codes,
   onStartAgain,
+  onConfirmFragment,
+  onUseWholeRoute,
 }: ResultProps) {
   const { before, after } = report;
+
+  // The file waits while the fragment warning stands (AD-22): somebody who grabbed the wrong track
+  // would otherwise walk away with 320 s of their run replaced by a drawn line and no way to tell.
+  // The warning is gone from the confirmed answer, so the gate opens without a flag of its own.
+  const gated = report.warnings.some(
+    (warning) => warning.code === fragmentCode && warning.severity === 'blocking',
+  );
 
   // The repair keeps the Original's clock, so these seconds are the "before" ones too — which is
   // why they are also the denominator of both paces, and why the time row states the same value
@@ -74,14 +110,29 @@ export function Result({
     <div>
       {report.warnings.length > 0 && (
         // Above the numbers, not beside them (EXPERIENCE.md): the one about an over-long track is
-        // the difference between a true pace and a flattering one, so it is read first. It does
-        // not gate the download in this story — the confirmation that matters changes the result
-        // rather than opening a gate, and that belongs with the story offering the choice (AD-22).
+        // the difference between a true pace and a flattering one, so it is read first. Of the
+        // blocking ones only the fragment gates the file (see `fragmentCode`); the rest are shown
+        // beside an offered download, because their confirmations have no screen yet (AD-22).
         <ul aria-label={texts.warnings} className="flex flex-col gap-2">
           {report.warnings.map((warning) => (
             <Callout key={warning.code} warning={warning} texts={texts} codes={codes} />
           ))}
         </ul>
+      )}
+
+      {/* The question itself, under the warning that raised it: which seconds and which metres
+          were redrawn, and the one answer only the athlete has. */}
+      {gated && (
+        <FragmentGate
+          // `?? null` and not a cast: a service a version ahead of this build may send a warning
+          // whose span this contract does not know, and the question still has to be asked.
+          span={report.redrawn ?? null}
+          texts={texts}
+          units={units}
+          onConfirm={onConfirmFragment}
+          onUseWholeRoute={onUseWholeRoute}
+          codes={codes}
+        />
       )}
 
       <dl className="mt-gutter grid grid-cols-1 gap-gutter md:grid-cols-3">
@@ -110,11 +161,15 @@ export function Result({
       </dl>
 
       <div className="mt-section flex flex-col items-start gap-gutter md:flex-row md:items-center">
-        <Download
-          fitBase64={report.fitBase64}
-          originalName={originalName}
-          label={texts.download}
-        />
+        {/* Withheld rather than disabled: a download button that cannot be pressed invites the
+            press, and the thing to press is the confirmation above (AD-22). */}
+        {!gated && (
+          <Download
+            fitBase64={report.fitBase64}
+            originalName={originalName}
+            label={texts.download}
+          />
+        )}
         <button
           type="button"
           onClick={onStartAgain}
@@ -168,6 +223,105 @@ function Callout({
         {said.text}
       </p>
     </li>
+  );
+}
+
+/**
+ * The gate of AD-22 for the one code this story owns: the stretch the service redrew, stated in the
+ * seconds and the metres the answer carried, and the confirmation that repeats the repair without
+ * the warning. The file is nowhere on the screen until that answer comes back.
+ *
+ * The span is read off the report and never worked out here from the zones: the CLI prints the same
+ * two seconds, and two readings of one repair are two numbers free to disagree (AD-16).
+ */
+function FragmentGate({
+  span,
+  texts,
+  units,
+  onConfirm,
+  onUseWholeRoute,
+  codes,
+}: {
+  readonly span: RedrawnSpan | null;
+  readonly texts: ResultTexts;
+  readonly units: UnitTexts;
+  readonly onConfirm: () => Promise<CoverageAnswer>;
+  readonly onUseWholeRoute: () => Promise<CoverageAnswer>;
+  readonly codes: Readonly<Record<string, string>>;
+}) {
+  // Which of the two answers is out, so the label that changes is the button that was pressed:
+  // a screen saying "Підтверджую…" while the whole-route answer is in flight states the opposite
+  // of what was asked.
+  const [pending, setPending] = useState<'fragment' | 'whole' | null>(null);
+  const [failure, setFailure] = useState<string | null>(null);
+
+  async function answer(which: 'fragment' | 'whole', with_: () => Promise<CoverageAnswer>) {
+    // The same guard the repair button has: two clicks can land inside one render, and the second
+    // would repair the same two files again for an identical answer.
+    if (pending !== null) return;
+
+    setPending(which);
+    setFailure(null);
+    const answered = await with_();
+    setPending(null);
+    // A failed repeat leaves the result where it is — the numbers on screen are still the ones the
+    // service answered with — and says what happened. A refusal says it in the service's own
+    // words, because "try again" is wrong advice for a file the service will refuse again.
+    setFailure(
+      answered.ok
+        ? null
+        : answered.code === undefined
+          ? texts.confirmFailed
+          : codeText(codes, answered.code).text,
+    );
+  }
+
+  return (
+    <div className="mt-gutter rounded-md border border-border bg-surface p-gutter">
+      <dl>
+        <dt className="text-sm text-text-muted">{texts.redrawn}</dt>
+        {/* Null only if an answer carried the warning without the span, which the core does not
+            produce: the question is still asked, with the words of the warning above. */}
+        {span !== null && (
+          <dd className="mt-2 flex flex-wrap items-baseline gap-2">
+            <span className="type-metric text-estimated">
+              {`${duration(span.fromSeconds)}–${duration(span.toSeconds)}`}
+            </span>
+            <span className="text-text-muted">{kilometres(span.distanceMeters, units)}</span>
+          </dd>
+        )}
+      </dl>
+
+      <p className="mt-gutter text-sm text-text-muted">{texts.withheld}</p>
+
+      <button
+        type="button"
+        disabled={pending !== null}
+        aria-busy={pending === 'fragment'}
+        onClick={() => void answer('fragment', onConfirm)}
+        className="type-display mt-2 rounded-pill bg-accent px-8 py-3 text-accent-ink transition-opacity disabled:cursor-not-allowed disabled:bg-surface-raised disabled:text-text-muted"
+      >
+        {pending === 'fragment' ? texts.confirming : texts.confirmFragment}
+      </button>
+
+      {/* The answer the detector can be wrong about: a lap run twice looks like a stretch of
+          itself, and the athlete is the one who knows. Secondary, because the common answer is
+          the one above, but present — a question with only a yes is not a question. */}
+      <button
+        type="button"
+        disabled={pending !== null}
+        aria-busy={pending === 'whole'}
+        onClick={() => void answer('whole', onUseWholeRoute)}
+        className="mt-2 ml-0 rounded-pill border border-border bg-surface-raised px-6 py-3 text-sm text-text-muted transition-colors hover:text-text disabled:cursor-not-allowed md:ml-2"
+      >
+        {pending === 'whole' ? texts.confirming : texts.rejectFragment}
+      </button>
+
+      {/* A live region: the sentence arrives seconds after the press, as the repair's own does. */}
+      <div role="status" className="empty:hidden">
+        {failure !== null && <p className="mt-2 text-sm text-danger">{failure}</p>}
+      </div>
+    </div>
   );
 }
 

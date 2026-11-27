@@ -52,6 +52,15 @@ public static class DiagnosticCodes
     /// </summary>
     public const string TrackLongerThanActivity = "TRACK_LONGER_THAN_ACTIVITY";
 
+    /// <summary>
+    /// The track was recognised as a <em>stretch</em> of the route rather than the whole of it, and
+    /// one stretch of the activity was redrawn from it (AD-27). The repair happened; the report
+    /// names the span in <see cref="RepairReport.RedrawnSpan"/>, and the file waits until the user
+    /// confirms — the client repeats the request with <c>trackCoverage=fragment</c>, exactly as
+    /// <see cref="TrackLongerThanActivity"/> is confirmed with a length mode (AD-22).
+    /// </summary>
+    public const string TrackIsAFragment = "TRACK_IS_A_FRAGMENT";
+
     // --- Errors: the core refuses the input (AD-18).
 
     /// <summary>The bytes offered as a FIT file are not a FIT file.</summary>
@@ -200,6 +209,15 @@ public static class DiagnosticCodes
     /// </summary>
     public const string TrackLengthModeInvalid = "TRACK_LENGTH_MODE_INVALID";
 
+    /// <summary>
+    /// A repair request named a track-coverage mode the service does not know (HTTP 400): none of
+    /// <c>detect</c>, <c>fragment</c> or <c>whole</c>. Refused for the same reason a misspelt
+    /// track-length mode is: read as a confirmation it would redraw a stretch of somebody's run on
+    /// nobody's word, and read as the detecting mode it would silently drop the confirmation they
+    /// gave (AD-27).
+    /// </summary>
+    public const string TrackCoverageModeInvalid = "TRACK_COVERAGE_MODE_INVALID";
+
     private static readonly Dictionary<string, DiagnosticSeverity> Severities = new(StringComparer.Ordinal)
     {
         // Warnings. A stalled GPS is the normal case this service exists for, and few anchors
@@ -213,6 +231,9 @@ public static class DiagnosticCodes
         [PositionsDiscarded] = DiagnosticSeverity.Info,
         [TrackFarFromOriginal] = DiagnosticSeverity.Blocking,
         [TrackLongerThanActivity] = DiagnosticSeverity.Blocking,
+        // Redrawing a stretch of a run nobody asked to have redrawn is the mistake this severity
+        // exists to prevent: the repair stands, and the file waits for an answer (AD-22, AD-27).
+        [TrackIsAFragment] = DiagnosticSeverity.Blocking,
 
         // Errors always withhold the result: there is no file to download.
         [NotAFitFile] = DiagnosticSeverity.Blocking,
@@ -240,7 +261,8 @@ public static class DiagnosticCodes
         [InspectRoleInvalid] = DiagnosticSeverity.Blocking,
         [FileMissing] = DiagnosticSeverity.Blocking,
         [TooManyFiles] = DiagnosticSeverity.Blocking,
-        [TrackLengthModeInvalid] = DiagnosticSeverity.Blocking
+        [TrackLengthModeInvalid] = DiagnosticSeverity.Blocking,
+        [TrackCoverageModeInvalid] = DiagnosticSeverity.Blocking
     };
 
     /// <summary>Every declared code. The UI dictionary's key set must equal this set (AD-18).</summary>

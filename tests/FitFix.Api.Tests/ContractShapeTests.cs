@@ -98,7 +98,7 @@ public class ContractShapeTests
     }
 
     [Fact]
-    public void The_repair_body_carries_its_seven_members_and_names_every_enum_as_a_string()
+    public void The_repair_body_carries_its_eight_members_and_names_every_enum_as_a_string()
     {
         var repair = new RepairResponse(
             Before: new OriginalSummaryResponse(
@@ -125,6 +125,7 @@ public class ContractShapeTests
                 LapCount: 1),
             Track: new TrackLengthsResponse(LengthMeters: 6537.2, UsedLengthMeters: 6537.2),
             Zones: [new TrustZoneResponse(ZoneKindName.Measured, 0, 1300)],
+            Redrawn: new RedrawnSpanResponse(FromSeconds: 1612, ToSeconds: 1976, DistanceMeters: 1234),
             Series: new RepairSeriesResponse(
                 SecondsFromStart: [0, 1],
                 Original: new OriginalSeriesResponse(
@@ -149,8 +150,14 @@ public class ContractShapeTests
         var root = document.RootElement;
 
         Assert.Equal(
-            ["after", "before", "fitBase64", "series", "track", "warnings", "zones"],
+            ["after", "before", "fitBase64", "redrawn", "series", "track", "warnings", "zones"],
             root.EnumerateObject().Select(member => member.Name).Order());
+
+        // The redrawn stretch is three base quantities and no sentence (AD-14, AD-27).
+        Assert.Equal(
+            ["distanceMeters", "fromSeconds", "toSeconds"],
+            root.GetProperty("redrawn").EnumerateObject().Select(member => member.Name).Order());
+        Assert.Equal(1612, root.GetProperty("redrawn").GetProperty("fromSeconds").GetDouble());
 
         Assert.Equal(
             ["discardedPositionCount", "recordCount", "recordedDistanceMeters", "sport", "startedAt"],
@@ -198,6 +205,15 @@ public class ContractShapeTests
         Assert.Equal(["code", "severity"], warning.EnumerateObject().Select(member => member.Name).Order());
         Assert.Equal("info", warning.GetProperty("severity").GetString());
         Assert.True(DiagnosticCodes.IsDeclared(warning.GetProperty("code").GetString()));
+
+        // A whole track redrew no stretch, and the member is still there, stated as null: a client
+        // that reads `redrawn` has to be able to tell "nothing was redrawn" from an older server
+        // (AD-5's rule for a series, and the same claim about a value).
+        using var whole = JsonDocument.Parse(JsonSerializer.Serialize(repair with { Redrawn = null }, Web));
+        Assert.Equal(
+            ["after", "before", "fitBase64", "redrawn", "series", "track", "warnings", "zones"],
+            whole.RootElement.EnumerateObject().Select(member => member.Name).Order());
+        Assert.Equal(JsonValueKind.Null, whole.RootElement.GetProperty("redrawn").ValueKind);
     }
 
     [Fact]

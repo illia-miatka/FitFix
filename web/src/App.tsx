@@ -1,7 +1,7 @@
 import { useCallback, useId, useRef, useState } from 'react';
 
 import { repair as askForRepair } from './api/repair';
-import type { RepairReport } from './api/repair';
+import type { RepairReport, TrackCoverageMode } from './api/repair';
 import { Dropzone } from './components/Dropzone';
 import { HowItWorks } from './components/HowItWorks';
 import { Notice } from './components/Notice';
@@ -45,9 +45,10 @@ export function App() {
     running.current = true;
     setState({ status: 'working' });
 
-    // No track-length mode: the conservative length is the only one a request that has asked
-    // nobody anything may end on (AD-17). The choice is Story 1.8's, and taking it would mean
-    // repeating this request with `full`.
+    // Neither mode: the conservative length is the only one a request that has asked nobody
+    // anything may end on (AD-17), and the service's own answer about the track's coverage is the
+    // only one it may act on unasked (AD-27). The length choice is Story 1.8's; the coverage one is
+    // `confirmFragment` below, and both are the same request again with one field more.
     const outcome = await askForRepair(original, track);
     running.current = false;
 
@@ -56,6 +57,47 @@ export function App() {
         ? { status: 'repaired', report: outcome.report, originalName: original.name }
         : outcome,
     );
+  }
+
+  /**
+   * The answer to the fragment warning (Story 5.2): the very same two files again, with the
+   * coverage confirmed, because confirming is a different request and not a flag on the answer
+   * already in hand (AD-3, AD-22). The new report replaces the old one, warning and gate included.
+   * Answers whether the repeat arrived, which is all the result screen needs to know.
+   */
+  const confirmFragment = useCallback(
+    () => answerCoverage('fragment'),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [original, track],
+  );
+
+  /**
+   * The other answer to the same question: the track is the whole route and the detector read a
+   * lap for a stretch of one. The request goes again with the coverage stated, which puts the
+   * repair back on the whole-track mechanism — a question with only a yes is not a question.
+   */
+  const useWholeRoute = useCallback(
+    () => answerCoverage('whole'),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [original, track],
+  );
+
+  async function answerCoverage(coverage: TrackCoverageMode): Promise<CoverageAnswer> {
+    if (original === null || track === null || running.current) return { ok: false };
+
+    running.current = true;
+    const outcome = await askForRepair(original, track, undefined, coverage);
+    running.current = false;
+
+    if (outcome.status === 'repaired') {
+      setState({ status: 'repaired', report: outcome.report, originalName: original.name });
+      return { ok: true };
+    }
+
+    // A refusal says which answer the service could not act on, and that sentence is the
+    // dictionary's (Story 2.7): telling somebody to try again is wrong advice for a 400, where
+    // the same two files would meet the same code.
+    return outcome.status === 'refused' ? { ok: false, code: outcome.code } : { ok: false };
   }
 
   const startAgain = useCallback(() => {
@@ -92,6 +134,8 @@ export function App() {
             units={uk.units}
             codes={uk.codes}
             onStartAgain={startAgain}
+            onConfirmFragment={confirmFragment}
+            onUseWholeRoute={useWholeRoute}
           />
         </div>
       </main>
@@ -182,6 +226,16 @@ export function App() {
       </div>
     </main>
   );
+}
+
+/**
+ * What answering the fragment question came back as: it worked, or it did not and the service
+ * said why. The code travels so the screen can state the service's own sentence instead of
+ * telling somebody to try again where trying again cannot help (Story 2.7).
+ */
+export interface CoverageAnswer {
+  readonly ok: boolean;
+  readonly code?: string;
 }
 
 /**

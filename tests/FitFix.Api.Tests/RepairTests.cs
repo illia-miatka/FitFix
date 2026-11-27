@@ -544,6 +544,138 @@ public class RepairTests : IDisposable
     }
 
     [Fact]
+    public async Task A_fragment_is_repaired_with_a_blocking_warning_and_the_stretch_it_redrew()
+    {
+        var (original, track) = FragmentFiles();
+        var expected = Repair(original, track).Report;
+
+        using var response = await RepairAsync(original, track);
+        var body = await ReadJsonAsync(response);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        // Repaired, and the question beside it: AD-22's blocking severity is what tells the client
+        // to withhold the file until the user has answered (AD-27).
+        var warnings = Warnings(body);
+        Assert.Contains(DiagnosticCodes.TrackIsAFragment, warnings.Keys);
+        Assert.Equal(SeverityName.Blocking, warnings[DiagnosticCodes.TrackIsAFragment]);
+
+        // The stretch as base quantities, every one of them the core's own (AD-14, AD-16).
+        Assert.True(expected.RedrawnSpan is not null, "the core named no redrawn stretch");
+        var span = expected.RedrawnSpan!.Value;
+        var redrawn = body.GetProperty("redrawn");
+        Assert.Equal(span.FromSeconds, redrawn.GetProperty("fromSeconds").GetDouble(), 0.001);
+        Assert.Equal(span.ToSeconds, redrawn.GetProperty("toSeconds").GetDouble(), 0.001);
+        Assert.Equal(span.DistanceMeters, redrawn.GetProperty("distanceMeters").GetDouble(), 0.001);
+
+        // And it is the estimated zone of the very same answer, so a client may shade one from the
+        // other instead of asking twice.
+        var estimated = body.GetProperty("zones").EnumerateArray()
+            .Single(zone => zone.GetProperty("kind").GetString() == ZoneKindName.Estimated);
+        Assert.Equal(
+            estimated.GetProperty("fromSeconds").GetDouble(),
+            redrawn.GetProperty("fromSeconds").GetDouble(),
+            0.001);
+        Assert.Equal(
+            estimated.GetProperty("toSeconds").GetDouble(),
+            redrawn.GetProperty("toSeconds").GetDouble(),
+            0.001);
+    }
+
+    [Fact]
+    public async Task Confirming_the_coverage_answers_the_question_and_changes_no_number()
+    {
+        var (original, track) = FragmentFiles();
+
+        using var asked = await RepairAsync(original, track);
+        using var confirmed = await RepairAsync(
+            original, track, coverage: TrackCoverageModes.Fragment);
+        using var detecting = await RepairAsync(
+            original, track, coverage: TrackCoverageModes.Detect);
+
+        var question = await ReadJsonAsync(asked);
+        var answer = await ReadJsonAsync(confirmed);
+        var stated = await ReadJsonAsync(detecting);
+
+        // Nothing left to ask, and the same repair underneath: the file is the same bytes, so the
+        // confirmation opens the gate rather than producing a second result.
+        Assert.DoesNotContain(DiagnosticCodes.TrackIsAFragment, Warnings(answer).Keys);
+        Assert.Equal(
+            question.GetProperty("after").GetProperty("distanceMeters").GetDouble(),
+            answer.GetProperty("after").GetProperty("distanceMeters").GetDouble(),
+            0.001);
+        Assert.Equal(question.GetProperty("fitBase64").GetString(), answer.GetProperty("fitBase64").GetString());
+        // The stretch is stated in both: confirming changes who was asked, not what was done.
+        Assert.Equal(
+            question.GetProperty("redrawn").GetProperty("fromSeconds").GetDouble(),
+            answer.GetProperty("redrawn").GetProperty("fromSeconds").GetDouble(),
+            0.001);
+
+        // And the mode named explicitly is the mode a request inherits when it names none.
+        Assert.Contains(DiagnosticCodes.TrackIsAFragment, Warnings(stated).Keys);
+    }
+
+    [Fact]
+    public async Task A_caller_stating_the_whole_route_gets_no_fragment_and_no_stretch()
+    {
+        var (original, track) = FragmentFiles();
+
+        using var response = await RepairAsync(original, track, coverage: TrackCoverageModes.Whole);
+        var body = await ReadJsonAsync(response);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.DoesNotContain(DiagnosticCodes.TrackIsAFragment, Warnings(body).Keys);
+        Assert.Equal(JsonValueKind.Null, body.GetProperty("redrawn").ValueKind);
+    }
+
+    [Fact]
+    public async Task A_whole_track_states_a_null_stretch_rather_than_leaving_the_member_out()
+    {
+        var run = SyntheticRun.Create();
+        var (original, track) = Files(run);
+
+        using var response = await RepairAsync(original, track);
+        var body = await ReadJsonAsync(response);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.DoesNotContain(DiagnosticCodes.TrackIsAFragment, Warnings(body).Keys);
+        Assert.Equal(JsonValueKind.Null, body.GetProperty("redrawn").ValueKind);
+    }
+
+    [Theory]
+    [InlineData("whatever")]
+    // A token of the protocol, matched exactly, like the length mode and the inspect role.
+    [InlineData("Fragment")]
+    [InlineData("FRAGMENT")]
+    [InlineData("whole-route")]
+    public async Task An_unknown_coverage_mode_is_refused_rather_than_guessed(string coverage)
+    {
+        var run = SyntheticRun.Create();
+        var (original, track) = Files(run);
+
+        using var response = await RepairAsync(original, track, coverage: coverage);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(DiagnosticCodes.TrackCoverageModeInvalid, await ReadCodeAsync(response));
+    }
+
+    [Fact]
+    public async Task Two_coverage_modes_state_no_coverage_at_all()
+    {
+        var run = SyntheticRun.Create();
+        var (original, track) = Files(run);
+
+        using var content = Upload(original, track);
+        content.Add(new StringContent(TrackCoverageModes.Detect), RepairEndpoint.TrackCoverageField);
+        content.Add(new StringContent(TrackCoverageModes.Fragment), RepairEndpoint.TrackCoverageField);
+
+        using var response = await Host.Client.PostAsync(RepairEndpoint.Route, content);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(DiagnosticCodes.TrackCoverageModeInvalid, await ReadCodeAsync(response));
+    }
+
+    [Fact]
     public async Task One_file_only_says_the_other_is_missing()
     {
         var run = SyntheticRun.Create();
@@ -641,6 +773,7 @@ public class RepairTests : IDisposable
             $"Repaired an activity: running, {run.Original.Records.Count} records, "
             + $"{expected.ElapsedSeconds:F0} s, {expected.AnchorCount} anchors, "
             + $"{expected.LapCount} laps, {TrackLengthMode.Full} track length, "
+            + $"{TrackCoverageMode.Detect} coverage, "
             + $"{expected.DiscardedPositionCount} positions discarded, "
             + $"codes {string.Join(' ', expected.Warnings)}.",
             text,
@@ -669,6 +802,21 @@ public class RepairTests : IDisposable
     private static (byte[] Original, byte[] Track) Files(SyntheticRun run) =>
         (SyntheticFitBuilder.WriteActivity(run.Original),
             SyntheticFitBuilder.WriteTrack(run.TrackPoints, SyntheticRun.StartTime));
+
+    /// <summary>
+    /// The fixture's own run with a track covering only the stretch the GPS lost — the last 800 m
+    /// of the course, from 200 m before the freeze — which is what the service recognises as a
+    /// fragment (AD-27). The core's own suite pins what that repair does; what is checked here is
+    /// what the answer says about it.
+    /// </summary>
+    private static (byte[] Original, byte[] Track) FragmentFiles()
+    {
+        var run = SyntheticRun.Create();
+        var fragment = run.WithTrackCovering(3_700, run.TrueRouteLength);
+
+        return (SyntheticFitBuilder.WriteActivity(fragment.Original),
+            SyntheticFitBuilder.WriteTrack(fragment.TrackPoints, SyntheticRun.StartTime));
+    }
 
     /// <summary>
     /// A two-hour pair: the fixture's own run with the frozen GPS, its records carried on at 1 Hz
@@ -702,7 +850,7 @@ public class RepairTests : IDisposable
     {
         using var originalStream = new MemoryStream(original);
         using var trackStream = new MemoryStream(track);
-        return RepairPipeline.Repair(originalStream, trackStream, mode);
+        return RepairPipeline.Repair(originalStream, trackStream, mode, TrackCoverageMode.Detect);
     }
 
     /// <summary>Every series of the answer, by the name a failure should report it under.</summary>
@@ -857,11 +1005,14 @@ public class RepairTests : IDisposable
         byte[] original,
         byte[] track,
         string? mode = null,
-        string fileName = "upload.bin")
+        string fileName = "upload.bin",
+        string? coverage = null)
     {
         var content = Upload(original, track, fileName);
         if (mode is not null)
             content.Add(new StringContent(mode), RepairEndpoint.TrackLengthModeField);
+        if (coverage is not null)
+            content.Add(new StringContent(coverage), RepairEndpoint.TrackCoverageField);
 
         return Host.Client.PostAsync(RepairEndpoint.Route, content);
     }

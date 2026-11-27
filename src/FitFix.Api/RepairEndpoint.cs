@@ -9,7 +9,8 @@ namespace FitFix.Api;
 /// <c>POST /api/repair</c> (Story 2.3): the two files in one request, and everything about the
 /// repair in one answer — the summaries before and after, the trust zones, the per-record series,
 /// the warnings with their severities and the repaired FIT as base64. Nothing is stored, so a
-/// client that wants a different track-length mode sends the same two files again (AD-3, AD-17).
+/// client that wants a different track-length mode, or that is confirming the stretch a fragment
+/// redrew, sends the same two files again (AD-3, AD-17, AD-27).
 /// <para>
 /// This endpoint composes nothing and computes nothing. <see cref="RepairPipeline"/> is the single
 /// composition of read, align and repair that the CLI already calls, so the two entry points
@@ -28,6 +29,12 @@ public static class RepairEndpoint
     /// conservative one.
     /// </summary>
     public const string TrackLengthModeField = "trackLengthMode";
+
+    /// <summary>
+    /// The form field saying what the client knows about how much of the route the track covers
+    /// (AD-27). Absent means the service decides and asks before the file is anybody's.
+    /// </summary>
+    public const string TrackCoverageField = "trackCoverage";
 
     /// <summary>
     /// The category of this endpoint's own log lines. Separate from the request line's, so a
@@ -72,6 +79,7 @@ public static class RepairEndpoint
         // joined by a comma and name no mode at all, which is the right answer to a request that
         // states two.
         var trackLengthMode = ModeFrom(form[TrackLengthModeField].ToString());
+        var trackCoverage = CoverageFrom(form[TrackCoverageField].ToString());
 
         // A third file is a mistake about the request rather than about either role, so it is
         // refused before the roles are looked for — otherwise a request carrying two originals and
@@ -97,10 +105,10 @@ public static class RepairEndpoint
 
         // The one composition of read, align and repair (AD-10). Every refusal it raises carries a
         // code and leaves through the failure handler, so this endpoint writes no status of its own.
-        var result = RepairPipeline.Repair(original, track, trackLengthMode);
+        var result = RepairPipeline.Repair(original, track, trackLengthMode, trackCoverage);
         var answer = Transcribe(result);
 
-        Log(loggers.CreateLogger(LogCategory), result, trackLengthMode);
+        Log(loggers.CreateLogger(LogCategory), result, trackLengthMode, trackCoverage);
 
         return Results.Ok(answer);
     }
@@ -148,6 +156,27 @@ public static class RepairEndpoint
     };
 
     /// <summary>
+    /// What the request says it knows about the track's coverage (AD-27). An empty field is a
+    /// request that said nothing, and the detecting mode is the only one it may inherit: a fragment
+    /// applied silently replaces minutes of somebody's run with a drawn line and tells them
+    /// nothing. Anything else is refused rather than guessed, for the reason the length mode is —
+    /// read as a confirmation it acts on nobody's word, read as the default it drops a
+    /// confirmation that was given.
+    /// </summary>
+    private static TrackCoverageMode CoverageFrom(string mode) => mode switch
+    {
+        "" => TrackCoverageMode.Detect,
+        TrackCoverageModes.Detect => TrackCoverageMode.Detect,
+        TrackCoverageModes.Fragment => TrackCoverageMode.Fragment,
+        TrackCoverageModes.Whole => TrackCoverageMode.WholeRoute,
+        _ => throw new MalformedArgumentException(
+            DiagnosticCodes.TrackCoverageModeInvalid,
+            $"A repair request states a track-coverage mode of '{TrackCoverageModes.Detect}', "
+                + $"'{TrackCoverageModes.Fragment}' or '{TrackCoverageModes.Whole}', or none at "
+                + "all.")
+    };
+
+    /// <summary>
     /// The result as the contract states it. Transcription only: every number is read off the
     /// report or the summary the core settled (AD-16), and the derived values the core does carry —
     /// the paces and the measured share — are deliberately left behind (AD-14).
@@ -191,6 +220,14 @@ public static class RepairEndpoint
                 Kind: ZoneKindName.Of(zone.Kind),
                 FromSeconds: zone.FromSeconds,
                 ToSeconds: zone.ToSeconds))],
+            // Which seconds a fragment redrew, as the core settled them: null for a whole track,
+            // and never derived here from the zones or the reach (AD-16, AD-27).
+            Redrawn: report.RedrawnSpan is { } redrawn
+                ? new RedrawnSpanResponse(
+                    FromSeconds: redrawn.FromSeconds,
+                    ToSeconds: redrawn.ToSeconds,
+                    DistanceMeters: redrawn.DistanceMeters)
+                : null,
             Series: SeriesOf(result),
             // The severity beside every code, so the interface decides the download gate from the
             // answer it was given rather than from a table of its own (AD-22).
@@ -277,25 +314,31 @@ public static class RepairEndpoint
     }
 
     /// <summary>
-    /// What AD-9 allows about a repair: durations, counts, the sport, the mode the request asked
-    /// for and the warning codes — never a coordinate, a distance of the athlete's, the contents of
+    /// What AD-9 allows about a repair: durations, counts, the sport, the two modes the request
+    /// asked for and the warning codes — never a coordinate, a distance of the athlete's, the contents of
     /// either file or the name either was uploaded under. Without it an operator reading a refusal
     /// cannot tell which shape of activity produced it.
     /// </summary>
-    private static void Log(ILogger logger, RepairResult result, TrackLengthMode trackLengthMode)
+    private static void Log(
+        ILogger logger,
+        RepairResult result,
+        TrackLengthMode trackLengthMode,
+        TrackCoverageMode trackCoverage)
     {
         var report = result.Report;
 
         logger.LogInformation(
             "Repaired an activity: {Sport}, {RecordCount} records, {ElapsedSeconds:F0} s, "
             + "{AnchorCount} anchors, {LapCount} laps, {TrackLengthMode} track length, "
-            + "{DiscardedPositionCount} positions discarded, codes {Codes}.",
+            + "{TrackCoverage} coverage, {DiscardedPositionCount} positions discarded, "
+            + "codes {Codes}.",
             SportName.Of(result.Sport),
             result.Records.Count,
             report.ElapsedSeconds,
             report.AnchorCount,
             report.LapCount,
             trackLengthMode,
+            trackCoverage,
             report.DiscardedPositionCount,
             report.Warnings.Count > 0 ? string.Join(' ', report.Warnings) : "-");
     }

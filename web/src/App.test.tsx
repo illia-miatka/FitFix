@@ -85,8 +85,20 @@ const aReport = {
       temperatureCelsius: [4, 4],
     },
   },
+  redrawn: null,
   warnings: [],
   fitBase64: 'RklUAQID',
+};
+
+/**
+ * The same repair of a track the service recognised as a stretch of the route: the blocking
+ * warning, and the span it names (Story 5.2). The confirmed answer is `aReport` — the same numbers
+ * with nothing left to ask.
+ */
+const aFragmentReport = {
+  ...aReport,
+  redrawn: { fromSeconds: 1612, toSeconds: 1976, distanceMeters: 1234 },
+  warnings: [{ code: 'TRACK_IS_A_FRAGMENT', severity: 'blocking' }],
 };
 
 /**
@@ -461,6 +473,98 @@ describe('pressing the button', () => {
     expect(screen.queryByRole('button', { name: uk.errors.retry })).not.toBeInTheDocument();
     expect(screen.queryByText(uk.repair.unreachable)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: uk.repair.working })).toBeDisabled();
+    expect(repairCalls(fetched)).toBe(2);
+  });
+});
+
+describe('confirming a fragment', () => {
+  const repair = () => screen.getByRole('button', { name: uk.repair.action });
+
+  async function withBothFiles() {
+    render(<App />);
+    await choose(uk.dropzones.original.pick, fitFile('Run_4k_Chabany.fit'));
+    await choose(uk.dropzones.track.pick, fitFile('route.gpx'));
+    await screen.findByText(uk.inspection.length);
+    expect(repair()).toBeEnabled();
+  }
+
+  it('repeats the two files with the coverage confirmed, and then offers the file', async () => {
+    let asks = 0;
+    const fetched = serviceDescribesEverything((request) => {
+      asks += 1;
+      // The first ask names no coverage at all, so the service decides and asks; the second
+      // carries the answer (AD-27).
+      const coverage = (request.body as FormData).get('trackCoverage');
+      expect(coverage).toBe(asks === 1 ? null : 'fragment');
+      return answers(asks === 1 ? aFragmentReport : aReport);
+    });
+    await withBothFiles();
+
+    await userEvent.click(repair());
+    await screen.findByRole('heading', { name: uk.result.title });
+
+    // The gate: the stretch, no file, and one thing to press.
+    expect(screen.getByText(uk.codes.TRACK_IS_A_FRAGMENT)).toBeInTheDocument();
+    expect(screen.getByText('26:52–32:56')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: uk.result.download })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: uk.result.confirmFragment }));
+
+    expect(
+      await screen.findByRole('button', { name: uk.result.download }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(uk.codes.TRACK_IS_A_FRAGMENT)).not.toBeInTheDocument();
+    expect(repairCalls(fetched)).toBe(2);
+
+    // Both files went again, each named for its role (AD-15): nothing is stored, so confirming is
+    // the same request with one field more (AD-3).
+    const repairs = fetched.mock.calls.filter(([url]) => url === '/api/repair');
+    const body = (repairs[1] as [string, RequestInit])[1].body as FormData;
+    expect((body.get('original') as File).name).toBe('Run_4k_Chabany.fit');
+    expect((body.get('track') as File).name).toBe('route.gpx');
+  });
+
+  it('repeats the two files as a whole route when the detector was wrong', async () => {
+    // The other answer to the same question. A lap run twice looks like a stretch of itself, and
+    // only the athlete knows; the request goes again saying so, and the repair leaves the
+    // fragment mechanism altogether (AD-27).
+    let asks = 0;
+    const fetched = serviceDescribesEverything((request) => {
+      asks += 1;
+      const coverage = (request.body as FormData).get('trackCoverage');
+      expect(coverage).toBe(asks === 1 ? null : 'whole');
+      return answers(asks === 1 ? aFragmentReport : aReport);
+    });
+    await withBothFiles();
+
+    await userEvent.click(repair());
+    await screen.findByRole('heading', { name: uk.result.title });
+
+    await userEvent.click(screen.getByRole('button', { name: uk.result.rejectFragment }));
+
+    expect(await screen.findByRole('button', { name: uk.result.download })).toBeInTheDocument();
+    expect(screen.queryByText(uk.codes.TRACK_IS_A_FRAGMENT)).not.toBeInTheDocument();
+    expect(repairCalls(fetched)).toBe(2);
+  });
+
+  it('keeps the gate and says so when the repeated request never arrives', async () => {
+    let asks = 0;
+    const fetched = serviceDescribesEverything(() => {
+      asks += 1;
+      if (asks === 1) return answers(aFragmentReport);
+      throw new TypeError('Failed to fetch');
+    });
+    await withBothFiles();
+
+    await userEvent.click(repair());
+    await screen.findByRole('heading', { name: uk.result.title });
+    await userEvent.click(screen.getByRole('button', { name: uk.result.confirmFragment }));
+
+    expect(await screen.findByText(uk.result.confirmFailed)).toBeInTheDocument();
+    // The result of the first answer is untouched, and the file is still withheld: nothing was
+    // confirmed, so nothing may be taken away.
+    expect(screen.getByText(uk.codes.TRACK_IS_A_FRAGMENT)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: uk.result.download })).not.toBeInTheDocument();
     expect(repairCalls(fetched)).toBe(2);
   });
 });

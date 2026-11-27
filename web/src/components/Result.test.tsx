@@ -1,4 +1,5 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
+import type { CoverageAnswer } from '../App';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -68,6 +69,8 @@ function aReport(overrides: Partial<RepairReport> = {}): RepairReport {
         temperatureCelsius: [4, 4],
       },
     },
+    // Nothing was redrawn from a fragment: this pair is the whole route (AD-27).
+    redrawn: null,
     warnings: [],
     // `FIT\u0001\u0002\u0003` — short, and its bytes are checked after the round trip.
     fitBase64: 'RklUAQID',
@@ -75,7 +78,18 @@ function aReport(overrides: Partial<RepairReport> = {}): RepairReport {
   };
 }
 
-function show(report: RepairReport, onStartAgain = () => {}) {
+/** The fragment warning as the service raises it, with the stretch it names (Story 5.2). */
+const aFragment = {
+  redrawn: { fromSeconds: 1612, toSeconds: 1976, distanceMeters: 1234 },
+  warnings: [{ code: 'TRACK_IS_A_FRAGMENT', severity: 'blocking' }],
+} satisfies Partial<RepairReport>;
+
+function show(
+  report: RepairReport,
+  onStartAgain = () => {},
+  onConfirmFragment: () => Promise<CoverageAnswer> = async () => ({ ok: true }),
+  onUseWholeRoute: () => Promise<CoverageAnswer> = async () => ({ ok: true }),
+) {
   return render(
     <Result
       report={report}
@@ -84,6 +98,8 @@ function show(report: RepairReport, onStartAgain = () => {}) {
       units={uk.units}
       codes={uk.codes}
       onStartAgain={onStartAgain}
+      onConfirmFragment={onConfirmFragment}
+      onUseWholeRoute={onUseWholeRoute}
     />,
   );
 }
@@ -249,12 +265,131 @@ describe('the warnings', () => {
     expect(screen.queryByRole('list', { name: uk.result.warnings })).not.toBeInTheDocument();
   });
 
-  it('does not withhold the file behind a blocking warning in this story', () => {
-    // AD-22 gates the download on a blocking severity, and the confirmation that matters changes
-    // the result rather than opening a gate (Story 1.8). Until it exists, the file is offered.
+  it('does not withhold the file behind another blocking warning', () => {
+    // AD-22 gates the download on a blocking severity, and the over-long track's confirmation is
+    // Story 1.8's: its screen does not exist, so a gate here would withhold the file behind a
+    // question nobody can answer. Only the fragment is gated in this story.
     show(aReport({ warnings: [{ code: 'TRACK_LONGER_THAN_ACTIVITY', severity: 'blocking' }] }));
 
     expect(screen.getByRole('button', { name: uk.result.download })).toBeEnabled();
+    expect(
+      screen.queryByRole('button', { name: uk.result.confirmFragment }),
+    ).not.toBeInTheDocument();
+  });
+});
+
+describe('the fragment gate', () => {
+  it('withholds the file and states the stretch that was redrawn', () => {
+    show(aReport(aFragment));
+
+    // The words of the warning, the seconds and the metres it is about — and no file.
+    expect(screen.getByText(uk.codes.TRACK_IS_A_FRAGMENT)).toBeInTheDocument();
+    expect(screen.getByText(uk.result.redrawn)).toBeInTheDocument();
+    expect(screen.getByText('26:52–32:56')).toBeInTheDocument();
+    expect(screen.getByText(`1,23 ${uk.units.kilometres}`)).toBeInTheDocument();
+    expect(screen.getByText(uk.result.withheld)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: uk.result.download })).not.toBeInTheDocument();
+
+    // The numbers are still shown: the question is which stretch, not whether to look.
+    expect(metric(uk.result.distance)).toBeInTheDocument();
+  });
+
+  it('repeats the repair when the stretch is confirmed', async () => {
+    const confirm = vi.fn(async () => ({ ok: true }));
+    show(aReport(aFragment), () => {}, confirm);
+
+    await userEvent.click(screen.getByRole('button', { name: uk.result.confirmFragment }));
+
+    expect(confirm).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers the other answer too, and repeats the repair as a whole route', async () => {
+    // A lap run twice looks like a stretch of itself, so the detector can be wrong and the
+    // athlete is the one who knows. A question with only a yes is not a question (Story 5.2).
+    const whole = vi.fn(async () => ({ ok: true }));
+    show(aReport(aFragment), () => {}, async () => ({ ok: true }), whole);
+
+    await userEvent.click(screen.getByRole('button', { name: uk.result.rejectFragment }));
+
+    expect(whole).toHaveBeenCalledTimes(1);
+  });
+
+  it('cannot be answered both ways at once, and says which answer is out', async () => {
+    const whole = vi.fn(() => new Promise<CoverageAnswer>(() => {}));
+    const confirm = vi.fn(async () => ({ ok: true }));
+    show(aReport(aFragment), () => {}, confirm, whole);
+
+    await userEvent.click(screen.getByRole('button', { name: uk.result.rejectFragment }));
+
+    // The busy label belongs to the button that was pressed: a screen saying it is confirming
+    // the stretch while the opposite answer is in flight states the opposite of what was asked.
+    const working = screen.getByRole('button', { name: uk.result.confirming });
+    expect(working).toBeDisabled();
+    expect(working).toHaveAttribute('aria-busy', 'true');
+    expect(screen.getByRole('button', { name: uk.result.confirmFragment })).toBeDisabled();
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it('offers the file as soon as the confirmed answer arrives', () => {
+    // What the page renders once the repeated request has come back: the same repair without the
+    // warning, so the gate is gone with it and the span was never a flag of its own.
+    show(aReport({ redrawn: aFragment.redrawn, warnings: [] }));
+
+    expect(screen.getByRole('button', { name: uk.result.download })).toBeEnabled();
+    expect(
+      screen.queryByRole('button', { name: uk.result.confirmFragment }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(uk.result.withheld)).not.toBeInTheDocument();
+  });
+
+  it('asks once however often the confirmation is pressed', async () => {
+    const confirm = vi.fn(() => new Promise<CoverageAnswer>(() => {}));
+    show(aReport(aFragment), () => {}, confirm);
+
+    const button = screen.getByRole('button', { name: uk.result.confirmFragment });
+    await userEvent.click(button);
+    // The button says it is working and cannot be pressed again, which is what makes one press
+    // one repair of a two-hour activity.
+    const working = screen.getByRole('button', { name: uk.result.confirming });
+    expect(working).toBeDisabled();
+    expect(working).toHaveAttribute('aria-busy', 'true');
+
+    expect(confirm).toHaveBeenCalledTimes(1);
+  });
+
+  it('says a failed confirmation and leaves the result standing', async () => {
+    const confirm = vi.fn(async () => ({ ok: false }));
+    show(aReport(aFragment), () => {}, confirm);
+
+    await userEvent.click(screen.getByRole('button', { name: uk.result.confirmFragment }));
+
+    expect(await screen.findByText(uk.result.confirmFailed)).toBeInTheDocument();
+    // The numbers and the gate are both where they were: nothing was answered, so nothing changed.
+    expect(metric(uk.result.distance)).toHaveTextContent(`6,54 ${uk.units.kilometres}`);
+    expect(screen.getByRole('button', { name: uk.result.confirmFragment })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: uk.result.download })).not.toBeInTheDocument();
+  });
+
+  it("states the service's own sentence when the repeat was refused", async () => {
+    // Telling somebody to try again is wrong advice for a 400: the same two files meet the same
+    // code. The dictionary's text for it is what the page says instead (Story 2.7).
+    const confirm = vi.fn(async () => ({ ok: false, code: 'TRACK_ATTACHES_NOWHERE' }));
+    show(aReport(aFragment), () => {}, confirm);
+
+    await userEvent.click(screen.getByRole('button', { name: uk.result.confirmFragment }));
+
+    expect(await screen.findByText(uk.codes.TRACK_ATTACHES_NOWHERE)).toBeInTheDocument();
+    expect(screen.queryByText(uk.result.confirmFailed)).not.toBeInTheDocument();
+  });
+
+  it('asks the question even when the answer named no stretch', async () => {
+    // A warning without a span is not something the core produces, and the gate must not open on
+    // one: the file would be handed over because the sentence beside it could not be written.
+    show(aReport({ warnings: aFragment.warnings }));
+
+    expect(screen.getByText(uk.codes.TRACK_IS_A_FRAGMENT)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: uk.result.confirmFragment })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: uk.result.download })).not.toBeInTheDocument();
   });
 });
 

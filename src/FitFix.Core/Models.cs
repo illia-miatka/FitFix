@@ -32,6 +32,37 @@ public enum TrackLengthMode
     Full
 }
 
+/// <summary>
+/// What the caller knows about how much of the route the Еталонний трек covers (AD-27). The
+/// detection is good enough to act on and not good enough to act on unasked, so the service states
+/// what it found and the caller states what it knows — and <see cref="Detect"/> is this enum's zero
+/// value on purpose: a caller that says nothing has confirmed nothing, and gets the question.
+/// </summary>
+public enum TrackCoverageMode
+{
+    /// <summary>
+    /// Let the service decide. A track it recognises as a stretch of the route is repaired as one
+    /// and the result carries <c>TRACK_IS_A_FRAGMENT</c>, the blocking warning AD-22 withholds the
+    /// file for until the user answers it.
+    /// </summary>
+    Detect,
+
+    /// <summary>
+    /// The user has confirmed that a stretch is what the track is, so the same repair runs without
+    /// the warning. Not a command to treat any track as a fragment: a track the service does not
+    /// recognise as one is still the whole route, because confirming answers the question the
+    /// service asked rather than replacing its answer.
+    /// </summary>
+    Fragment,
+
+    /// <summary>
+    /// The track is the whole route, whatever its length suggests — a lap course run twice, where
+    /// the stretch with the weakest evidence must not be redrawn on the detector's word alone. The
+    /// fragment question is never asked and the whole-track mechanism runs.
+    /// </summary>
+    WholeRoute
+}
+
 /// <summary>Один record-запис Оригіналу: час, позиція (може бути відсутня) і сенсори.</summary>
 public sealed record ActivityRecord
 {
