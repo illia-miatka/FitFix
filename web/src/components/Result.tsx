@@ -5,6 +5,7 @@ import type { CoverageAnswer } from '../App';
 // The one place a code becomes a sentence (Story 2.7).
 import { codeText } from '../errors';
 import { duration, kilometres, pace } from '../format';
+import { RouteMap, type MapTexts } from './RouteMap';
 
 /** `uk.result` — every string of this screen. No component here holds a literal (AD-18). */
 export interface ResultTexts {
@@ -28,6 +29,7 @@ export interface ResultTexts {
   readonly download: string;
   readonly startAgain: string;
   readonly strava: string;
+  readonly map: MapTexts;
 }
 
 /** `uk.units` — what a distance and a pace are written in. */
@@ -171,6 +173,15 @@ export function Result({
           after={pace(after.distanceMeters, seconds, units) ?? texts.noPace}
         />
       </dl>
+
+      {/* Below the numbers and above the actions (Story 3.2): the athlete checks that the line is
+          their own route before taking the file. */}
+      <RouteMap
+        className="mt-gutter"
+        series={report.series}
+        zones={report.zones}
+        texts={texts.map}
+      />
 
       <div className="mt-section flex flex-col items-start gap-gutter md:flex-row md:items-center">
         {/* Withheld rather than disabled: a download button that cannot be pressed invites the

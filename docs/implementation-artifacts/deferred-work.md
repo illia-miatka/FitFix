@@ -174,3 +174,7 @@ Append-only: add entries, never rewrite existing ones.
 - source_spec: `spec-5-2-confirm-fragment.md`
   summary: Correction to the entry above: the result screen does offer the whole-route answer, so only the CLI lacks it.
   evidence: The entry recorded during Story 5.2's implementation says a misdetected whole route "cannot be repaired as one from the command line or the browser". The browser half is false as shipped: the fragment gate carries both answers, and pressing «Ні, це цілий маршрут» repeats the repair with `trackCoverage=whole`. A question with only a yes is not a question, which is why it was added before the story closed. What remains true is the command line: `fitfix repair` has `--trust-fragment` and no `--whole-track`, so a lap course the detector reads as a stretch of itself can only be forced through the API or the browser. This file is append-only, so the correction is an entry of its own rather than an edit.
+
+- source_spec: `docs/implementation-artifacts/spec-3-2-route-map.md`
+  summary: A basemap with a dark style and no key would let the map drop the CSS inversion of OpenStreetMap tiles.
+  evidence: CARTO's keyless dark tiles serve an "API KEY REQUIRED" watermark (seen in a browser, 2026-11-27), so 3.2 darkens OpenStreetMap with a CSS filter. The inversion leaves faint seams at tile borders and shifts colours; a keyed dark source or a self-hosted style would fix both, at the price of configuration the one-command setup does not have today.

@@ -259,6 +259,31 @@ export const uk = {
     startAgain: 'Почати знову',
     /** The row EXPERIENCE.md asks for beside the download: disabled, and saying why (Epic 4). */
     strava: 'Залити у Strava — незабаром',
+
+    /**
+     * The route map (Story 3.2). Everything Leaflet would have written in English is here: its
+     * zoom titles, its attribution prefix and its popup close button are all replaced by these.
+     */
+    map: {
+      /** The map's own accessible name, with the two keys a keyboard user needs. */
+      label: 'Карта маршруту. Стрілки пересувають карту, плюс і мінус змінюють масштаб.',
+      layers: 'Шари карти',
+      repaired: 'Виправлений трек',
+      original: 'Оригінал',
+      start: 'Старт',
+      finish: 'Фініш',
+      /** The last place the position was measured; after it the track is calculated (AD-20). */
+      measuredUntil: 'Далі позицію розраховано',
+      zoomIn: 'Збільшити масштаб',
+      zoomOut: 'Зменшити масштаб',
+      /**
+       * The basemap's credit, as OpenStreetMap asks for it. Markup because Leaflet writes an
+       * attribution with innerHTML; the link opens apart and sends no referrer.
+       */
+      attribution:
+        '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">' +
+        'Учасники OpenStreetMap</a>',
+    },
   },
 
   /** What a failure reads as, and the attempt beside it. Shared by the zones and the repair. */
