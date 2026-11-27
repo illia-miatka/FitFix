@@ -19,6 +19,7 @@ export interface ResultTexts {
   readonly blocking: string;
   readonly info: string;
   readonly redrawn: string;
+  readonly keptOwn: string;
   readonly withheld: string;
   readonly confirmFragment: string;
   readonly rejectFragment: string;
@@ -133,6 +134,17 @@ export function Result({
           onUseWholeRoute={onUseWholeRoute}
           codes={codes}
         />
+      )}
+
+      {/* The same stretch once the question is answered (Story 5.3): the confirmed answer still
+          carries `redrawn`, and the screen that offers the file is the one that has to say which
+          seconds of the run are a drawn line. `!= null` and not `!== null`: a service a version
+          behind sends no field at all, which means the same as null. */}
+      {!gated && report.redrawn != null && (
+        <div className="mt-gutter rounded-md border border-border bg-surface p-gutter">
+          <RedrawnStretch span={report.redrawn} texts={texts} units={units} />
+          <p className="mt-gutter text-sm text-text-muted">{texts.keptOwn}</p>
+        </div>
       )}
 
       <dl className="mt-gutter grid grid-cols-1 gap-gutter md:grid-cols-3">
@@ -278,19 +290,9 @@ function FragmentGate({
 
   return (
     <div className="mt-gutter rounded-md border border-border bg-surface p-gutter">
-      <dl>
-        <dt className="text-sm text-text-muted">{texts.redrawn}</dt>
-        {/* Null only if an answer carried the warning without the span, which the core does not
-            produce: the question is still asked, with the words of the warning above. */}
-        {span !== null && (
-          <dd className="mt-2 flex flex-wrap items-baseline gap-2">
-            <span className="type-metric text-estimated">
-              {`${duration(span.fromSeconds)}–${duration(span.toSeconds)}`}
-            </span>
-            <span className="text-text-muted">{kilometres(span.distanceMeters, units)}</span>
-          </dd>
-        )}
-      </dl>
+      {/* Null only if an answer carried the warning without the span, which the core does not
+          produce: the question is still asked, with the words of the warning above. */}
+      {span !== null && <RedrawnStretch span={span} texts={texts} units={units} />}
 
       <p className="mt-gutter text-sm text-text-muted">{texts.withheld}</p>
 
@@ -322,6 +324,34 @@ function FragmentGate({
         {failure !== null && <p className="mt-2 text-sm text-danger">{failure}</p>}
       </div>
     </div>
+  );
+}
+
+/**
+ * The stretch a fragment redrew: its first and last second, and the metres the fragment drew
+ * there (AD-27). One place states it, so the question that asks about the stretch and the result
+ * that answers for it cannot word the same span two ways. The label is the dictionary's; the
+ * numbers come from the answer and are never part of a sentence (AD-14).
+ */
+function RedrawnStretch({
+  span,
+  texts,
+  units,
+}: {
+  readonly span: RedrawnSpan;
+  readonly texts: ResultTexts;
+  readonly units: UnitTexts;
+}) {
+  return (
+    <dl>
+      <dt className="text-sm text-text-muted">{texts.redrawn}</dt>
+      <dd className="mt-2 flex flex-wrap items-baseline gap-2">
+        <span className="type-metric text-estimated">
+          {`${duration(span.fromSeconds)}–${duration(span.toSeconds)}`}
+        </span>
+        <span className="text-text-muted">{kilometres(span.distanceMeters, units)}</span>
+      </dd>
+    </dl>
   );
 }
 

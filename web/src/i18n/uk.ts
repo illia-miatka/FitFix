@@ -240,6 +240,11 @@ export const uk = {
      * the label beside them, never a sentence with a number in it (AD-14).
      */
     redrawn: 'Перемальована ділянка',
+    /**
+     * Said beside the stretch once it is confirmed (Story 5.3): what the repair did not touch. A
+     * label like `redrawn`, with no number in it (AD-14).
+     */
+    keptOwn: 'Поза цією ділянкою координати, висота й дистанція лишаються такими, як їх записав годинник.',
     /** Why there is no file to take yet. Said once, under the callout, not inside the button. */
     withheld: 'Файл буде доступний, щойно підтвердиш ділянку.',
     confirmFragment: 'Так, це потрібна ділянка',
