@@ -5,47 +5,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { Dropzone } from './Dropzone';
 import { uk } from '../i18n/uk';
+import { anOriginal, aTrack, answers, fitFile } from '../test/fixtures';
 
 /**
  * Story 2.5: what a zone shows about the file it was given. The fetch is stubbed throughout —
  * these tests are about the three states and never about the service, which has its own tests
  * in `tests/FitFix.Api.Tests/InspectTests.cs`.
  */
-
-/** The bytes are never read here: the stub decides what the file turns out to be. */
-function someFile(name: string) {
-  return new File([new Uint8Array([0x0e, 0x10, 0x43, 0x5a])], name, {
-    type: 'application/octet-stream',
-  });
-}
-
-/**
- * One answer from the service. A hand-made object rather than a `Response`: the client reads
- * `ok`, `status` and `json()`, and nothing in jsdom has to provide the rest.
- */
-function answers(payload: unknown, status = 200) {
-  return { ok: status >= 200 && status < 300, status, json: async () => payload } as Response;
-}
-
-const anOriginal = {
-  role: 'original',
-  sport: 'running',
-  startedAt: '2026-11-19T07:12:03Z',
-  elapsedSeconds: 2162,
-  recordedDistanceMeters: 3911,
-  recordCount: 2163,
-  hasPosition: true,
-  discardedPositionCount: 0,
-  codes: [],
-};
-
-const aTrack = {
-  role: 'track',
-  lengthMeters: 6537.4,
-  pointCount: 1248,
-  format: 'gpx',
-  hasAltitude: true,
-};
 
 /** The same date the component formats, built from the primitives rather than from its code. */
 function expectedStart(startedAt: string) {
@@ -107,7 +73,7 @@ describe('a file the service describes', () => {
     vi.stubGlobal('fetch', fetched);
 
     render(<Zone role="original" />);
-    await choose('original', someFile('activity.fit'));
+    await choose('original', fitFile('activity.fit'));
 
     // The region is in the document from the start — what has to be waited for is its answer.
     await screen.findByText(expectedStart(anOriginal.startedAt));
@@ -129,7 +95,7 @@ describe('a file the service describes', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(answers(aTrack)));
 
     render(<Zone role="track" />);
-    await choose('track', someFile('route.gpx'));
+    await choose('track', fitFile('route.gpx'));
 
     await screen.findByText(`6,54 ${uk.inspection.kilometres}`);
     const answer = screen.getByRole('status');
@@ -145,7 +111,7 @@ describe('a file the service describes', () => {
     );
 
     render(<Zone role="original" />);
-    await choose('original', someFile('activity.fit'));
+    await choose('original', fitFile('activity.fit'));
 
     expect(await screen.findByText(uk.inspection.noDistance)).toBeInTheDocument();
     expect(screen.getByRole('status')).not.toHaveTextContent(`0,00 ${uk.inspection.kilometres}`);
@@ -160,7 +126,7 @@ describe('a file the service describes', () => {
     );
 
     render(<Zone role="original" />);
-    await choose('original', someFile('activity.fit'));
+    await choose('original', fitFile('activity.fit'));
 
     expect(await screen.findByText(uk.codes.POSITIONS_DISCARDED)).toBeInTheDocument();
     expect(accepted()).toBe('true');
@@ -173,7 +139,7 @@ describe('while the service is being asked', () => {
     vi.stubGlobal('fetch', vi.fn().mockReturnValue(new Promise<Response>(() => {})));
 
     render(<Zone role="original" />);
-    await choose('original', someFile('activity.fit'));
+    await choose('original', fitFile('activity.fit'));
 
     expect(await screen.findByText(uk.inspection.reading)).toBeInTheDocument();
     expect(accepted()).toBe('false');
@@ -198,7 +164,7 @@ describe('a file the service refuses', () => {
     );
 
     render(<Zone role="original" />);
-    await choose('original', someFile('photo.jpg'));
+    await choose('original', fitFile('photo.jpg'));
 
     expect(await screen.findByText(uk.codes.NOT_A_FIT_FILE)).toBeInTheDocument();
     expect(accepted()).toBe('false');
@@ -212,7 +178,7 @@ describe('a file the service refuses', () => {
     vi.stubGlobal('fetch', fetched);
 
     render(<Zone role="original" />);
-    await choose('original', someFile('photo.jpg'));
+    await choose('original', fitFile('photo.jpg'));
     await screen.findByText(uk.codes.NOT_A_FIT_FILE);
 
     expect(screen.queryByRole('button', { name: uk.errors.retry })).not.toBeInTheDocument();
@@ -230,7 +196,7 @@ describe('a file the service refuses', () => {
     vi.stubGlobal('fetch', fetched);
 
     render(<Zone role="track" />);
-    await choose('track', someFile('route.gpx'));
+    await choose('track', fitFile('route.gpx'));
 
     expect(await screen.findByText(uk.codes.INTERNAL_ERROR)).toBeInTheDocument();
     expect(accepted()).toBe('false');
@@ -254,7 +220,7 @@ describe('a file the service refuses', () => {
     vi.stubGlobal('fetch', fetched);
 
     render(<Zone role="track" />);
-    await choose('track', someFile('route.gpx'));
+    await choose('track', fitFile('route.gpx'));
 
     expect(await screen.findByText(uk.codes.REQUEST_MALFORMED)).toBeInTheDocument();
 
@@ -269,7 +235,7 @@ describe('a file the service refuses', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(answers({ code: 'A_CODE_FROM_THE_FUTURE' }, 400)));
 
     const { container } = render(<Zone role="original" />);
-    await choose('original', someFile('activity.fit'));
+    await choose('original', fitFile('activity.fit'));
 
     // A code DESIGN.md forbids on the screen is on nobody's screen — and still reaches whoever
     // gets the bug report, through the attribute (Story 2.7).
@@ -287,7 +253,7 @@ describe('a file the service refuses', () => {
     );
 
     const { container } = render(<Zone role="original" />);
-    await choose('original', someFile('activity.fit'));
+    await choose('original', fitFile('activity.fit'));
 
     // Accepted, so this is a remark and not a refusal: the generic sentence, severity unchanged.
     expect(await screen.findByText(uk.errors.unexpected)).toBeInTheDocument();
@@ -302,7 +268,7 @@ describe('when the service cannot be reached', () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
 
     render(<Zone role="original" />);
-    await choose('original', someFile('activity.fit'));
+    await choose('original', fitFile('activity.fit'));
 
     expect(await screen.findByText(uk.inspection.unreachable)).toBeInTheDocument();
     expect(accepted()).toBe('false');
@@ -318,7 +284,7 @@ describe('when the service cannot be reached', () => {
     vi.stubGlobal('fetch', fetched);
 
     render(<Zone role="track" />);
-    await choose('track', someFile('route.gpx'));
+    await choose('track', fitFile('route.gpx'));
     await screen.findByText(uk.inspection.unreachable);
 
     await userEvent.click(screen.getByRole('button', { name: uk.errors.retry }));
@@ -340,7 +306,7 @@ describe('when the service cannot be reached', () => {
     vi.stubGlobal('fetch', fetched);
 
     render(<Zone role="original" />);
-    await choose('original', someFile('activity.fit'));
+    await choose('original', fitFile('activity.fit'));
     await screen.findByText(uk.inspection.unreachable);
 
     await userEvent.click(screen.getByRole('button', { name: uk.errors.retry }));
@@ -364,7 +330,7 @@ describe('when the service cannot be reached', () => {
     vi.stubGlobal('fetch', fetched);
 
     render(<Zone role="track" />);
-    await choose('track', someFile('route.gpx'));
+    await choose('track', fitFile('route.gpx'));
     await screen.findByText(uk.inspection.unreachable);
 
     await userEvent.click(screen.getByRole('button', { name: uk.errors.retry }));
@@ -393,12 +359,12 @@ describe('when the service cannot be reached', () => {
     vi.stubGlobal('fetch', fetched);
 
     render(<Zone role="track" />);
-    await choose('track', someFile('wrong.gpx'));
+    await choose('track', fitFile('wrong.gpx'));
     await screen.findByText(uk.inspection.unreachable);
     await userEvent.click(screen.getByRole('button', { name: uk.errors.retry }));
 
     // The right file arrives before the repeated ask about the wrong one answers.
-    await choose('track', someFile('right.gpx'));
+    await choose('track', fitFile('right.gpx'));
     await screen.findByText(`10,40 ${uk.inspection.kilometres}`);
     answerRetry(answers(aTrack));
     await waitFor(() => expect(fetched).toHaveBeenCalledTimes(3));
@@ -411,7 +377,7 @@ describe('when the service cannot be reached', () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
 
     render(<Zone role="track" />);
-    await choose('track', someFile('route.gpx'));
+    await choose('track', fitFile('route.gpx'));
     await screen.findByText(uk.inspection.unreachable);
 
     await userEvent.click(screen.getByRole('button', { name: uk.dropzones.clear }));
@@ -437,8 +403,8 @@ describe('a second file dropped on a described zone', () => {
     vi.stubGlobal('fetch', fetched);
 
     render(<Zone role="track" />);
-    await choose('track', someFile('wrong.gpx'));
-    await choose('track', someFile('right.gpx'));
+    await choose('track', fitFile('wrong.gpx'));
+    await choose('track', fitFile('right.gpx'));
 
     const answer = await screen.findByText(`10,40 ${uk.inspection.kilometres}`);
     expect(answer).toBeInTheDocument();
@@ -459,7 +425,7 @@ describe('the clear control', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(answers(aTrack)));
 
     render(<Zone role="track" />);
-    await choose('track', someFile('route.gpx'));
+    await choose('track', fitFile('route.gpx'));
     await screen.findByText(`6,54 ${uk.inspection.kilometres}`);
 
     await userEvent.click(screen.getByRole('button', { name: uk.dropzones.clear }));
@@ -492,7 +458,7 @@ describe('the answer a screen reader is given', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(answers(aTrack)));
 
     render(<Zone role="track" />);
-    await choose('track', someFile('route.gpx'));
+    await choose('track', fitFile('route.gpx'));
     await screen.findByText(`6,54 ${uk.inspection.kilometres}`);
 
     const answer = screen.getByRole('status');

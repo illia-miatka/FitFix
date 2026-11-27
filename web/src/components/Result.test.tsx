@@ -5,84 +5,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { Result } from './Result';
 import type { RepairReport } from '../api/repair';
+import { aFragment, aReport } from '../test/fixtures';
 import { uk } from '../i18n/uk';
 
 /**
- * Story 2.6: the result screen. The report is a hand-made object throughout — these tests are
- * about what the screen says about an answer, never about the repair, which has its own tests in
- * `tests/FitFix.Core.Tests` and `tests/FitFix.Api.Tests`.
+ * Story 2.6: the result screen. The report is the hand-made one from `test/fixtures.ts`
+ * throughout — these tests are about what the screen says about an answer, never about the
+ * repair, which has its own tests in `tests/FitFix.Core.Tests` and `tests/FitFix.Api.Tests`.
  *
  * Every expected number below is worked out from the base quantities in plain arithmetic rather
  * than by calling `format.ts`: a test that asked the formatter what the formatter should say would
  * agree with any pace at all.
  */
-
-/** The 19.11.2026 case the project started from: 3,91 km recorded, 6,54 km of real track. */
-function aReport(overrides: Partial<RepairReport> = {}): RepairReport {
-  return {
-    before: {
-      sport: 'running',
-      startedAt: '2026-11-19T07:12:03Z',
-      recordCount: 2163,
-      recordedDistanceMeters: 3911,
-      discardedPositionCount: 0,
-    },
-    after: {
-      distanceMeters: 6537.4,
-      elapsedSeconds: 2162,
-      movingSeconds: 2162,
-      pausedSeconds: 0,
-      averageSpeedMetersPerSecond: 3.024,
-      maximumSpeedMetersPerSecond: 4.1,
-      averageHeartRate: 154,
-      maximumHeartRate: 171,
-      averagePower: null,
-      maximumPower: null,
-      averageCadence: 84,
-      maximumCadence: 96,
-      elevationGainMeters: 41,
-      elevationLossMeters: 39,
-      lapCount: 1,
-    },
-    track: { lengthMeters: 6537.4, usedLengthMeters: 6537.4 },
-    zones: [
-      { kind: 'measured', fromSeconds: 0, toSeconds: 1700 },
-      { kind: 'estimated', fromSeconds: 1700, toSeconds: 2162 },
-    ],
-    series: {
-      secondsFromStart: [0, 1],
-      original: {
-        latitude: [50.3333, null],
-        longitude: [30.3833, null],
-        distanceMeters: [0, null],
-        speedMetersPerSecond: [3, null],
-      },
-      repaired: {
-        latitude: [50.3333, 50.3334],
-        longitude: [30.3833, 30.3834],
-        altitudeMeters: [182.8, 182.9],
-        distanceMeters: [0, 3],
-        speedMetersPerSecond: [3, 3],
-        heartRate: [150, 151],
-        power: [null, null],
-        cadence: [85, 85],
-        temperatureCelsius: [4, 4],
-      },
-    },
-    // Nothing was redrawn from a fragment: this pair is the whole route (AD-27).
-    redrawn: null,
-    warnings: [],
-    // `FIT\u0001\u0002\u0003` — short, and its bytes are checked after the round trip.
-    fitBase64: 'RklUAQID',
-    ...overrides,
-  };
-}
-
-/** The fragment warning as the service raises it, with the stretch it names (Story 5.2). */
-const aFragment = {
-  redrawn: { fromSeconds: 1612, toSeconds: 1976, distanceMeters: 1234 },
-  warnings: [{ code: 'TRACK_IS_A_FRAGMENT', severity: 'blocking' }],
-} satisfies Partial<RepairReport>;
 
 function show(
   report: RepairReport,

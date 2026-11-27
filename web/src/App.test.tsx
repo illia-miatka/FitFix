@@ -4,102 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { App } from './App';
 import { uk } from './i18n/uk';
-
-/** The bytes are never read here: the stubbed service decides what each file turns out to be. */
-function fitFile(name: string) {
-  return new File([new Uint8Array([0x0e, 0x10, 0x43, 0x5a])], name, {
-    type: 'application/octet-stream',
-  });
-}
-
-/** One answer. The client reads `ok`, `status` and `json()`, and nothing else has to exist. */
-function answers(payload: unknown, status = 200) {
-  return { ok: status >= 200 && status < 300, status, json: async () => payload } as Response;
-}
-
-const anOriginal = {
-  role: 'original',
-  sport: 'running',
-  startedAt: '2026-11-19T07:12:03Z',
-  elapsedSeconds: 2162,
-  recordedDistanceMeters: 3911,
-  recordCount: 2163,
-  hasPosition: true,
-  discardedPositionCount: 0,
-  codes: [],
-};
-
-const aTrack = {
-  role: 'track',
-  lengthMeters: 6537.4,
-  pointCount: 1248,
-  format: 'gpx',
-  hasAltitude: true,
-};
-
-/** The 19.11.2026 case, trimmed to what this screen reads. `Result.test.tsx` has the full one. */
-const aReport = {
-  before: {
-    sport: 'running',
-    startedAt: '2026-11-19T07:12:03Z',
-    recordCount: 2163,
-    recordedDistanceMeters: 3911,
-    discardedPositionCount: 0,
-  },
-  after: {
-    distanceMeters: 6537.4,
-    elapsedSeconds: 2162,
-    movingSeconds: 2162,
-    pausedSeconds: 0,
-    averageSpeedMetersPerSecond: 3.024,
-    maximumSpeedMetersPerSecond: 4.1,
-    averageHeartRate: 154,
-    maximumHeartRate: 171,
-    averagePower: null,
-    maximumPower: null,
-    averageCadence: 84,
-    maximumCadence: 96,
-    elevationGainMeters: 41,
-    elevationLossMeters: 39,
-    lapCount: 1,
-  },
-  track: { lengthMeters: 6537.4, usedLengthMeters: 6537.4 },
-  zones: [{ kind: 'measured', fromSeconds: 0, toSeconds: 2162 }],
-  series: {
-    secondsFromStart: [0, 1],
-    original: {
-      latitude: [50.3333, null],
-      longitude: [30.3833, null],
-      distanceMeters: [0, null],
-      speedMetersPerSecond: [3, null],
-    },
-    repaired: {
-      latitude: [50.3333, 50.3334],
-      longitude: [30.3833, 30.3834],
-      altitudeMeters: [182.8, 182.9],
-      distanceMeters: [0, 3],
-      speedMetersPerSecond: [3, 3],
-      heartRate: [150, 151],
-      power: [null, null],
-      cadence: [85, 85],
-      temperatureCelsius: [4, 4],
-    },
-  },
-  redrawn: null,
-  warnings: [],
-  fitBase64: 'RklUAQID',
-};
-
-/**
- * The same repair of a track the service recognised as a stretch of the route: the blocking
- * warning, and the span it names (Story 5.2). The confirmed answer is `aReport` — the same numbers
- * with nothing left to ask.
- */
-const aFragmentReport = {
-  ...aReport,
-  redrawn: { fromSeconds: 1612, toSeconds: 1976, distanceMeters: 1234 },
-  warnings: [{ code: 'TRACK_IS_A_FRAGMENT', severity: 'blocking' }],
-};
+import { aFragment, aReport, anOriginal, aTrack, answers, fitFile } from './test/fixtures';
 
 /**
  * The service, stubbed: each zone asks `/api/inspect` about its own file (Story 2.5) and the
@@ -299,7 +204,7 @@ describe('pressing the button', () => {
     expect(working).toHaveAttribute('aria-busy', 'true');
     expect(screen.queryByRole('heading', { name: uk.result.title })).not.toBeInTheDocument();
 
-    answerRepair(answers(aReport));
+    answerRepair(answers(aReport()));
 
     expect(await screen.findByRole('heading', { name: uk.result.title })).toBeInTheDocument();
     expect(screen.getByText(uk.result.distance)).toBeInTheDocument();
@@ -409,7 +314,7 @@ describe('pressing the button', () => {
     let asks = 0;
     const fetched = serviceDescribesEverything(() => {
       asks += 1;
-      return asks === 1 ? answers({ code: 'SUMMARY_SERIES_MISMATCH' }, 500) : answers(aReport);
+      return asks === 1 ? answers({ code: 'SUMMARY_SERIES_MISMATCH' }, 500) : answers(aReport());
     });
     await withBothFiles(fetched);
 
@@ -434,7 +339,7 @@ describe('pressing the button', () => {
     const fetched = serviceDescribesEverything(() => {
       asks += 1;
       if (asks === 1) throw new TypeError('Failed to fetch');
-      return answers(aReport);
+      return answers(aReport());
     });
     await withBothFiles(fetched);
 
@@ -488,20 +393,32 @@ describe('confirming a fragment', () => {
     expect(repair()).toBeEnabled();
   }
 
-  it('repeats the two files with the coverage confirmed, and then offers the file', async () => {
+  /**
+   * The service that calls the pair a stretch of the route once, and then accepts the answer.
+   * What the answer has to be is asserted inside the stub: the first ask names no coverage at
+   * all, so the service decides and asks, and the second carries exactly what the pressed button
+   * means (AD-27).
+   */
+  function asksOnceThenAccepts(expected: 'fragment' | 'whole') {
     let asks = 0;
-    const fetched = serviceDescribesEverything((request) => {
+    return serviceDescribesEverything((request) => {
       asks += 1;
-      // The first ask names no coverage at all, so the service decides and asks; the second
-      // carries the answer (AD-27).
       const coverage = (request.body as FormData).get('trackCoverage');
-      expect(coverage).toBe(asks === 1 ? null : 'fragment');
-      return answers(asks === 1 ? aFragmentReport : aReport);
+      expect(coverage).toBe(asks === 1 ? null : expected);
+      return answers(asks === 1 ? aReport(aFragment) : aReport());
     });
-    await withBothFiles();
+  }
 
+  /** Both files chosen and described, repaired once, and the result screen up at the gate. */
+  async function atTheGate() {
+    await withBothFiles();
     await userEvent.click(repair());
     await screen.findByRole('heading', { name: uk.result.title });
+  }
+
+  it('repeats the two files with the coverage confirmed, and then offers the file', async () => {
+    const fetched = asksOnceThenAccepts('fragment');
+    await atTheGate();
 
     // The gate: the stretch, no file, and one thing to press.
     expect(screen.getByText(uk.codes.TRACK_IS_A_FRAGMENT)).toBeInTheDocument();
@@ -528,17 +445,8 @@ describe('confirming a fragment', () => {
     // The other answer to the same question. A lap run twice looks like a stretch of itself, and
     // only the athlete knows; the request goes again saying so, and the repair leaves the
     // fragment mechanism altogether (AD-27).
-    let asks = 0;
-    const fetched = serviceDescribesEverything((request) => {
-      asks += 1;
-      const coverage = (request.body as FormData).get('trackCoverage');
-      expect(coverage).toBe(asks === 1 ? null : 'whole');
-      return answers(asks === 1 ? aFragmentReport : aReport);
-    });
-    await withBothFiles();
-
-    await userEvent.click(repair());
-    await screen.findByRole('heading', { name: uk.result.title });
+    const fetched = asksOnceThenAccepts('whole');
+    await atTheGate();
 
     await userEvent.click(screen.getByRole('button', { name: uk.result.rejectFragment }));
 
@@ -551,7 +459,7 @@ describe('confirming a fragment', () => {
     let asks = 0;
     const fetched = serviceDescribesEverything(() => {
       asks += 1;
-      if (asks === 1) return answers(aFragmentReport);
+      if (asks === 1) return answers(aReport(aFragment));
       throw new TypeError('Failed to fetch');
     });
     await withBothFiles();
@@ -571,7 +479,7 @@ describe('confirming a fragment', () => {
 
 describe('starting again', () => {
   it('returns to two empty zones with no result and the button disabled', async () => {
-    const fetched = serviceDescribesEverything(() => answers(aReport));
+    const fetched = serviceDescribesEverything(() => answers(aReport()));
     render(<App />);
     await choose(uk.dropzones.original.pick, fitFile('Run_4k_Chabany.fit'));
     await choose(uk.dropzones.track.pick, fitFile('route.gpx'));
