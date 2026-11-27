@@ -90,14 +90,36 @@ public static class RepairService
         // nowhere else, which is how every entry point inherits it.
         var (cleaned, discardedPositions) = GpsCleaner.Clean(believable, options);
 
-        // The anchors first, then the length they bound, then the finish pinned to it (AD-17). The
-        // measured distance is an input to the choice, so the alignment cannot be built in one
-        // call: a length chosen without the anchors either ignores what the GPS proved or has to
-        // guess at it. The stall detector reads the original as it arrived, because blanking a
-        // burst would otherwise look like a stall.
-        var measured = Aligner.Measure(cleaned, believable, track, options);
-        var length = ChooseTrackLength(believable, track, measured, options, trackLengthMode);
-        var alignment = Aligner.EndingAt(measured, cleaned.ElapsedSeconds, length.Used, options);
+        // Is the track a stretch of the route rather than the whole of it? That question comes
+        // first, because the two cases are aligned by different mechanisms and neither can stand in
+        // for the other (AD-27): a fragment attaches by its own two endpoints, and a whole track by
+        // the chain of anchors between its ends. The stall detector reads the original as it
+        // arrived in both, because blanking a burst would otherwise look like a stall.
+        var fragment = Aligner.AttachingFragment(cleaned, believable, track, options);
+
+        Alignment alignment;
+        ChosenTrackLength length;
+
+        if (fragment is not null)
+        {
+            alignment = fragment;
+
+            // AD-17 has nothing left to choose: a fragment is used whole, and the only metres taken
+            // from it are the ones its own estimated zone draws between the two attach points. The
+            // over-long question is about a track that outruns the activity's time, which the
+            // reachability of the span has already settled — hence no warning either.
+            length = new ChosenTrackLength(track.Length, TrackIsLonger: false);
+        }
+        else
+        {
+            // The anchors first, then the length they bound, then the finish pinned to it (AD-17).
+            // The measured distance is an input to the choice, so the alignment cannot be built in
+            // one call: a length chosen without the anchors either ignores what the GPS proved or
+            // has to guess at it.
+            var measured = Aligner.Measure(cleaned, believable, track, options);
+            length = ChooseTrackLength(believable, track, measured, options, trackLengthMode);
+            alignment = Aligner.EndingAt(measured, cleaned.ElapsedSeconds, length.Used, options);
+        }
 
         var records = cleaned.Records;
         var times = new double[records.Count];
@@ -121,20 +143,25 @@ public static class RepairService
         // those keep the watch's geometry, and only the rest is drawn from the track.
         var measuredPosition = MeasuredPositions(times, alignment.Zones);
 
+        // And what that geometry is for each of them: the watch's own position, or — for a blind
+        // second outside the track's span, where the track holds nothing to draw with — the line
+        // between the watch's own fixes on either side of it (AD-26, AD-27).
+        var measuredGeometry = MeasuredGeometry(records, times, movingTimes, measuredPosition, alignment.Reach);
+
         // Where each record falls along the reference track. The estimated zones read both their
         // geometry and their increment from this series; a measured zone reads it only where the
         // watch left no position of its own (AD-26). It is this series, and not the repaired
         // distance, that the chosen track length bounds — the only metres taken from the track are
         // the ones the estimated zones draw from it (AD-17).
         var trackDistances = InterpolateDistances(movingTimes, anchorMovingTimes, alignment.Anchors);
-        Smooth(trackDistances, times, PauseBlocks(cleaned), measuredPosition, options);
+        Smooth(trackDistances, times, PauseBlocks(cleaned), measuredPosition, alignment.Reach, options);
         EnforceMonotonicity(trackDistances, length.Used);
 
         // The repaired distance is a sum rather than a position along the track (AD-26): a measured
         // second is worth the metres between the watch's own two positions, an estimated one the
         // metres the track holds between the anchors bounding its zone. Monotonicity is verified
         // after the smoothing that precedes it, never instead of it (AD-8).
-        var distances = Accumulate(records, trackDistances, movingTimes, measuredPosition);
+        var distances = Accumulate(measuredGeometry, trackDistances, movingTimes, measuredPosition);
         EnforceMonotonicity(distances);
 
         // Speed is a distance over the time the athlete was moving for, never over the clock, and
@@ -151,8 +178,9 @@ public static class RepairService
             // and its own altitude stand — a route drawn in an editor cuts corners and does not
             // know which side of the path the athlete ran on (AD-26). A measured record the
             // cleaning left without a position has nothing of its own to keep, so it falls back to
-            // the track like an estimated one.
-            var own = measuredPosition[i] ? source.Position : null;
+            // the track like an estimated one — unless it lies outside the track's span, where the
+            // line between its own neighbours is all there is (AD-27).
+            var own = measuredGeometry[i];
             var drawn = own is null ? track.At(trackDistances[i]) : default;
 
             repaired.Add(new RepairedRecord
@@ -359,6 +387,15 @@ public static class RepairService
     /// <see cref="Anchor.TimeSeconds"/> is elapsed time, and mixing the two measures would
     /// divide moving seconds by an elapsed span and leave every record after a pause short.
     /// <paramref name="anchors"/> is read for distance alone.
+    /// <para>
+    /// Outside the anchors' own span the series is held flat rather than extrapolated: the track
+    /// contributes nothing where it does not reach, so a record before the first anchor stands at
+    /// that anchor's distance and one after the last at the last anchor's (AD-26, AD-27). With a
+    /// whole track every record falls inside the span and this is the identity; with a fragment,
+    /// extrapolation would run the track's own distance negative before the fragment and past its
+    /// end after it — and the smoothing would then average those invented metres into the estimated
+    /// zone beside them.
+    /// </para>
     /// </summary>
     private static double[] InterpolateDistances(
         double[] times,
@@ -373,7 +410,7 @@ public static class RepairService
             index = Math.Clamp(index, 0, anchors.Count - 2);
 
             var span = anchorTimes[index + 1] - anchorTimes[index];
-            var u = span > 0 ? (times[i] - anchorTimes[index]) / span : 0;
+            var u = span > 0 ? Math.Clamp((times[i] - anchorTimes[index]) / span, 0, 1) : 0;
             result[i] = anchors[index].TrackDistance
                 + u * (anchors[index + 1].TrackDistance - anchors[index].TrackDistance);
         }
@@ -416,12 +453,20 @@ public static class RepairService
     /// position is what the watch saw (AD-26). Inside an estimated zone the series is an
     /// interpolation already, and smoothing it is what keeps the kinks out.
     /// </para>
+    /// <para>
+    /// The window is clipped at the track's own span as well (AD-27): outside
+    /// <paramref name="reach"/> the series holds no track distance at all — it is the span's own
+    /// boundary repeated — and averaging those flat seconds into the estimated zone beside them
+    /// would buy the athlete ten metres in the one second the sources change over. A whole track
+    /// spans the activity, so this clips nothing and moves no number of one.
+    /// </para>
     /// </summary>
     private static void Smooth(
         double[] distances,
         double[] times,
         int[] blocks,
         bool[] measuredPosition,
+        TrackReach reach,
         AlignmentOptions options)
     {
         var raw = (double[])distances.Clone();
@@ -434,22 +479,28 @@ public static class RepairService
             var halfWidth = options.EstimatedZoneSmoothingSeconds;
 
             var low = i;
-            while (low > 0 && times[i] - times[low - 1] <= halfWidth && blocks[low - 1] == blocks[i])
+            while (low > 0
+                   && times[i] - times[low - 1] <= halfWidth
+                   && blocks[low - 1] == blocks[i]
+                   && times[low - 1] >= reach.FromSeconds)
                 low--;
 
             var high = i;
-            while (high < distances.Length - 1 && times[high + 1] - times[i] <= halfWidth && blocks[high + 1] == blocks[i])
+            while (high < distances.Length - 1
+                   && times[high + 1] - times[i] <= halfWidth
+                   && blocks[high + 1] == blocks[i]
+                   && times[high + 1] <= reach.ToSeconds)
                 high++;
 
             // Симетричне вікно — щоб згладжування не зсувало дистанцію вперед або назад.
-            var reach = Math.Min(i - low, high - i);
-            if (reach == 0)
+            var halfSpan = Math.Min(i - low, high - i);
+            if (halfSpan == 0)
                 continue;
 
             var sum = 0.0;
-            for (var j = i - reach; j <= i + reach; j++)
+            for (var j = i - halfSpan; j <= i + halfSpan; j++)
                 sum += raw[j];
-            distances[i] = sum / (2 * reach + 1);
+            distances[i] = sum / (2 * halfSpan + 1);
         }
     }
 
@@ -481,6 +532,72 @@ public static class RepairService
     }
 
     /// <summary>
+    /// The geometry each record of a Виміряна зона keeps (AD-26): the watch's own position, or
+    /// nothing where the cleaning blanked it and the track is the one left to draw with.
+    /// <para>
+    /// Outside the track's span there is no such fallback, because the track holds no geometry for
+    /// those seconds at all — drawing there would put the athlete on the span's boundary point,
+    /// which on a fragment is wherever the failure happened to start, and leave them standing still
+    /// for the whole blind stretch (AD-27). The line between the watch's own fixes on either side is
+    /// what the activity itself says instead: it keeps the athlete between the two places they
+    /// demonstrably were, and the distance keeps accruing across the gap. A single neighbour is held
+    /// rather than interpolated — a blind stretch at the very edge of the activity has no other side
+    /// — and with none at all the record falls through to the track as before.
+    /// </para>
+    /// </summary>
+    private static GeoPoint?[] MeasuredGeometry(
+        IReadOnlyList<ActivityRecord> records,
+        double[] times,
+        double[] movingTimes,
+        bool[] measuredPosition,
+        TrackReach reach)
+    {
+        var geometry = new GeoPoint?[records.Count];
+        for (var i = 0; i < records.Count; i++)
+            geometry[i] = measuredPosition[i] ? records[i].Position : null;
+
+        for (var i = 0; i < records.Count; i++)
+        {
+            // Inside the span — which for a whole track is the whole activity, so none of this
+            // applies to one — the track is the fallback and nothing here changes.
+            if (geometry[i] is not null
+                || !measuredPosition[i]
+                || (times[i] >= reach.FromSeconds && times[i] <= reach.ToSeconds))
+            {
+                continue;
+            }
+
+            var before = i;
+            while (before >= 0 && records[before].Position is null)
+                before--;
+
+            var after = i;
+            while (after < records.Count && records[after].Position is null)
+                after++;
+
+            var earlier = before >= 0 ? records[before].Position : null;
+            var later = after < records.Count ? records[after].Position : null;
+
+            if (earlier is { } from && later is { } to)
+            {
+                // Spread over moving time, so a pause inside the blind stretch holds the athlete
+                // where they were instead of carrying them along the line (FR-5, AD-7).
+                var span = movingTimes[after] - movingTimes[before];
+                var u = span > 0 ? (movingTimes[i] - movingTimes[before]) / span : 0;
+                geometry[i] = new GeoPoint(
+                    from.Latitude + u * (to.Latitude - from.Latitude),
+                    from.Longitude + u * (to.Longitude - from.Longitude));
+            }
+            else
+            {
+                geometry[i] = earlier ?? later;
+            }
+        }
+
+        return geometry;
+    }
+
+    /// <summary>
     /// The repaired distance series, metre by metre (AD-26). Each second is worth what its own
     /// source says it is worth: inside a Виміряна зона the geodesic distance between the watch's
     /// two positions, inside a Розрахована зона the increment the track holds across that second.
@@ -500,14 +617,14 @@ public static class RepairService
     /// </para>
     /// </summary>
     private static double[] Accumulate(
-        IReadOnlyList<ActivityRecord> records,
+        GeoPoint?[] measuredGeometry,
         double[] trackDistances,
         double[] movingTimes,
         bool[] measuredPosition)
     {
-        var distances = new double[records.Count];
+        var distances = new double[measuredGeometry.Length];
 
-        for (var i = 1; i < records.Count; i++)
+        for (var i = 1; i < measuredGeometry.Length; i++)
         {
             double step;
 
@@ -516,8 +633,8 @@ public static class RepairService
                 step = 0;
             }
             else if (measuredPosition[i]
-                && records[i].Position is { } here
-                && records[i - 1].Position is { } previous)
+                && measuredGeometry[i] is { } here
+                && measuredGeometry[i - 1] is { } previous)
             {
                 // The watch measured where it went, so the metres between the two fixes are the
                 // athlete's own. Cleaning has already taken the impossible ones out (AD-25), and

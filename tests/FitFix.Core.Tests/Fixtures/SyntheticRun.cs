@@ -183,6 +183,83 @@ public sealed class SyntheticRun
     }
 
     /// <summary>
+    /// The same run and the same athlete, with the reference track covering only
+    /// <c>[<paramref name="fromMeters"/>, <paramref name="toMeters"/>]</c> of the course — the five
+    /// broken kilometres out of fifty (AD-27). The points are the course's own, so the fragment is
+    /// the same geometry the whole track holds over that stretch and the two repairs can be compared
+    /// metre by metre; its cumulative distance starts at nothing, exactly as a file holding only
+    /// that stretch would.
+    /// <para>
+    /// <see cref="TrueRouteLength"/> becomes the fragment's length, since that is what the reference
+    /// track is now — the course the athlete ran is <see cref="DurationSeconds"/> ×
+    /// <see cref="SpeedMetersPerSecond"/> either way.
+    /// </para>
+    /// </summary>
+    public SyntheticRun WithTrackCovering(double fromMeters, double toMeters)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(fromMeters);
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(toMeters, fromMeters);
+
+        var cumulative = Cumulative([.. TrackPoints.Select(point => point.Position)]);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(toMeters, cumulative[^1]);
+
+        var slice = TrackPoints
+            .Where((_, index) => cumulative[index] >= fromMeters && cumulative[index] <= toMeters)
+            .ToArray();
+
+        // Two points more than the de-duplication spacing apart are what a track needs at all, and
+        // a slice too thin to hold them is a mistake in the test rather than a case to cover.
+        if (slice.Length < 2)
+            throw new ArgumentOutOfRangeException(
+                nameof(toMeters),
+                toMeters,
+                $"The course holds fewer than 2 points in [{fromMeters:F0}, {toMeters:F0}] m.");
+
+        return new SyntheticRun
+        {
+            TrackPoints = slice,
+            TrueRouteLength = Cumulative([.. slice.Select(point => point.Position)])[^1],
+            Original = Original
+        };
+    }
+
+    /// <summary>
+    /// The same run with no position written before <paramref name="second"/> — the watch that spends
+    /// the first kilometres of a run looking for the sky, and finds it only once the athlete is well
+    /// into the route. Everything else about those records, their sensors and their altitude
+    /// included, is the run's own, so only the fixes are missing.
+    /// </summary>
+    public SyntheticRun WithoutFixesBefore(int second) => WithoutFixes(time => time < second);
+
+    /// <summary>
+    /// The same run with no position written strictly between <paramref name="fromSecond"/> and
+    /// <paramref name="toSecond"/> — one dropout in the middle of an otherwise honest run. The
+    /// records at both bounds keep their fixes: that is where the anchors on either side of the gap
+    /// are measured, and the gap between them is the dropout exactly.
+    /// </summary>
+    public SyntheticRun WithoutFixesBetween(int fromSecond, int toSecond)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(toSecond, fromSecond);
+
+        return WithoutFixes(time => time > fromSecond && time < toSecond);
+    }
+
+    private SyntheticRun WithoutFixes(Func<double, bool> blind)
+    {
+        var records = Original.Records.Select(record =>
+            blind(Original.SecondsFromStart(record))
+                ? record with { Latitude = null, Longitude = null }
+                : record);
+
+        return new SyntheticRun
+        {
+            TrackPoints = TrackPoints,
+            TrueRouteLength = TrueRouteLength,
+            Original = Original with { Records = [.. records] }
+        };
+    }
+
+    /// <summary>
     /// The same run with the athlete's own laps marked: one lap ending at each of
     /// <paramref name="secondsFromStart"/>, and a last lap running to the end of the activity —
     /// so three unequal laps are <c>WithLapsEndingAt(300, 1500)</c>. Only the lap intervals are
@@ -499,6 +576,59 @@ public sealed class SyntheticRun
         {
             TrackPoints = course.TrackPoints,
             TrueRouteLength = length,
+            Original = new OriginalActivity { Records = records, Sport = SportKind.Running }
+        };
+    }
+
+    /// <summary>How long one lap of the course takes the athlete, s.</summary>
+    public static int LapSeconds => (int)(Create().TrueRouteLength / SpeedMetersPerSecond);
+
+    /// <summary>
+    /// The same course run twice round, with no position written between
+    /// <paramref name="blindFromSecond"/> and <paramref name="blindToSecond"/>. Every point of the
+    /// route is therefore passed twice, which is what makes it the fixture for the question AD-27
+    /// cannot answer by geometry alone: both ends of a fragment match the activity in two places,
+    /// and only the failure one of the two spans contains says which pass the athlete needs redrawn.
+    /// <para>
+    /// The watch's own distance keeps climbing through both laps, so the second lap is not a repeat
+    /// of the first to anything reading the file — only its coordinates come round again.
+    /// </para>
+    /// </summary>
+    public static SyntheticRun CreateTwoLaps(int blindFromSecond, int blindToSecond)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(blindToSecond, blindFromSecond);
+
+        var course = BuildCourse();
+        var noise = Noise();
+        var seconds = (int)(2 * course.Length / SpeedMetersPerSecond);
+        var records = new List<ActivityRecord>(seconds + 1);
+
+        for (var second = 0; second <= seconds; second++)
+        {
+            var travelled = second * SpeedMetersPerSecond;
+            var blind = second > blindFromSecond && second < blindToSecond;
+            // Round the loop again: the coordinates repeat, the distance does not.
+            var measured = Measured(course, travelled % course.Length, noise);
+
+            records.Add(new ActivityRecord
+            {
+                Timestamp = StartTime.AddSeconds(second),
+                Latitude = blind ? null : measured.Latitude,
+                Longitude = blind ? null : measured.Longitude,
+                Altitude = OriginalStartAltitude + Hill(travelled % course.Length, course.Length),
+                Distance = travelled,
+                Speed = SpeedMetersPerSecond,
+                HeartRate = (byte)(150 + second % 10),
+                Power = 200,
+                Cadence = 85,
+                Temperature = 4
+            });
+        }
+
+        return new SyntheticRun
+        {
+            TrackPoints = course.TrackPoints,
+            TrueRouteLength = course.Length,
             Original = new OriginalActivity { Records = records, Sport = SportKind.Running }
         };
     }

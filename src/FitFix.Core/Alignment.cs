@@ -30,10 +30,52 @@ public enum ZoneKind
 /// <param name="ToSeconds">When it ends, s from the activity's start.</param>
 public readonly record struct TrustZone(ZoneKind Kind, double FromSeconds, double ToSeconds);
 
+/// <summary>
+/// Which stretch of the activity the Еталонний трек reached, and whether its two ends are the
+/// activity's own (AD-27). The track is a <em>stretch</em> of the route and need not cover the whole
+/// of it, so these are the two assumptions the aligner used to make and now has to establish: that
+/// the activity starts where the track starts, and that it finishes where the track finishes.
+/// <para>
+/// Read by the repair rather than re-derived from <see cref="Alignment.Anchors"/>: outside this span
+/// the track holds nothing at all, which is what the smoothing and the geometry of a blind second
+/// have to know, and an anchor list cannot say it. Stories 5.2 and 5.3 read the same values to ask
+/// before a fragment is used and to show which stretch it redrew.
+/// </para>
+/// </summary>
+/// <param name="OpensAtTrackStart">
+/// The track's span begins where the activity does, so the athlete starts on its first metre. True
+/// of a whole track by definition, and of a fragment covering the activity's own first kilometres —
+/// the head fragment, whose start AD-27 falls back to the activity's start because no true position
+/// survives before it. False for a fragment that begins later: the seconds before it are the
+/// watch's own.
+/// </param>
+/// <param name="ClosesAtTrackEnd">
+/// The track's span ends where the activity does, so the athlete finishes on its last metre (AD-17,
+/// AD-27) — a whole track, or a fragment with no true position surviving after it. False for a
+/// fragment the activity outlived: the finish is then the athlete's own last position.
+/// </param>
+/// <param name="FromSeconds">
+/// When the track's own span begins, s from the activity's start.
+/// </param>
+/// <param name="ToSeconds">
+/// When it ends, s from the activity's start. Outside <c>[FromSeconds, ToSeconds]</c> the track
+/// contributes nothing at all: not a metre of distance and not a coordinate (AD-26).
+/// </param>
+public readonly record struct TrackReach(
+    bool OpensAtTrackStart,
+    bool ClosesAtTrackEnd,
+    double FromSeconds,
+    double ToSeconds);
+
 /// <summary>Результат Вирівнювання: Якорі, Зони довіри і попередження.</summary>
 public sealed class Alignment
 {
     public required IReadOnlyList<Anchor> Anchors { get; init; }
+
+    /// <summary>
+    /// What the anchors established about the track's own reach into the activity (AD-27).
+    /// </summary>
+    public required TrackReach Reach { get; init; }
 
     /// <summary>
     /// Which stretches of the activity the position was measured over and which were interpolated,
