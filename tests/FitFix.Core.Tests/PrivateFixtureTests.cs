@@ -66,6 +66,147 @@ public class PrivateFixtureTests
         Assert.Equal(result.Records.Count, reread.Records.Count);
     }
 
+    /// <summary>
+    /// Story 5.1 on the real pair, with the reference track cut down to a stretch of itself (AD-27).
+    /// The cut is made here rather than kept as a file of its own: the route carries Ілля's own GPS
+    /// and nothing of it may enter the repository, and slicing the private route by its own
+    /// cumulative distance is the same fragment either way.
+    /// <para>
+    /// The two rows are the two shapes the real activity offers. Route metres 4905–6139 are the
+    /// stretch the watch lost — its own distance stops at 4793.9 m around 1697 s and its positions
+    /// come and go from 1699 s to the finish — so the fragment attaches across the failure. Route
+    /// metres 2505–3482 are a stretch nothing was wrong with, run between about 828 s and 1122 s:
+    /// the fragment attaches there, because that is where that geometry is, and redraws a stretch
+    /// the watch had already measured. Neither pair may be read as covering the other's stretch.
+    /// </para>
+    /// </summary>
+    [Theory]
+    [InlineData(4_905.0, 6_139.0, 1_612.0, 1_976.0)]
+    [InlineData(2_505.0, 3_482.0, 828.0, 1_122.0)]
+    public void A_fragment_of_a_real_route_repairs_its_own_stretch_and_leaves_the_rest_alone(
+        double fromMetres,
+        double toMetres,
+        double expectedSpanFrom,
+        double expectedSpanTo)
+    {
+        var directory = FindPrivateFixtures();
+        var originalPath = Path.Combine(directory, "Run_5k_Chabany.fit");
+        var routePath = Path.Combine(directory, "Route_6_32km_Kyiv.gpx");
+
+        if (!File.Exists(originalPath) || !File.Exists(routePath))
+            return;
+
+        var original = FitActivityReader.ReadFile(originalPath);
+        var options = AlignmentOptions.ForSport(original.Sport);
+        var route = TrackReader.ReadReferenceTrackFile(routePath, options);
+        var fragment = Slice(route, fromMetres, toMetres, options);
+
+        var whole = RepairService.Repair(original, route);
+        var result = RepairService.Repair(original, fragment);
+
+        // The stretch the fragment is laid over is the stretch it is a drawing of.
+        var reach = result.Alignment.Reach;
+        Assert.Equal(expectedSpanFrom, reach.FromSeconds, 15.0);
+        Assert.Equal(expectedSpanTo, reach.ToSeconds, 15.0);
+        Assert.False(reach.OpensAtTrackStart);
+        Assert.False(reach.ClosesAtTrackEnd);
+
+        // Three zones: the watch's own, the redrawn stretch, the watch's own again (AD-26).
+        var zones = result.Report.Zones;
+        Assert.Equal(3, zones.Count);
+        Assert.Equal(ZoneKind.Measured, zones[0].Kind);
+        Assert.Equal(ZoneKind.Estimated, zones[1].Kind);
+        Assert.Equal(ZoneKind.Measured, zones[2].Kind);
+        Assert.Equal(reach.FromSeconds, zones[1].FromSeconds, 0.001);
+        Assert.Equal(reach.ToSeconds, zones[1].ToSeconds, 0.001);
+
+        // Outside the span the repair is the athlete's own file: its coordinates to the millimetre,
+        // and the same numbers the whole route produces wherever that repair also kept them rather
+        // than interpolating a dropout of its own.
+        var start = result.Records[0].Timestamp;
+        var own = 0;
+        var against = 0;
+
+        for (var index = 0; index < result.Records.Count; index++)
+        {
+            var seconds = (result.Records[index].Timestamp - start).TotalSeconds;
+            if (seconds >= reach.FromSeconds && seconds <= reach.ToSeconds)
+                continue;
+
+            if (result.CleanedOriginal.Records[index].Position is not { } position)
+                continue;
+
+            // The watch's own, and nothing drawn from any track.
+            Assert.Equal(position.Latitude, result.Records[index].Latitude, 1e-12);
+            Assert.Equal(position.Longitude, result.Records[index].Longitude, 1e-12);
+            own++;
+
+            if (KindAt(whole, seconds) != ZoneKind.Measured)
+                continue;
+
+            Assert.Equal(whole.Records[index].Latitude, result.Records[index].Latitude, 1e-12);
+            Assert.Equal(whole.Records[index].Longitude, result.Records[index].Longitude, 1e-12);
+            against++;
+        }
+
+        Assert.True(own > 500, $"only {own} of the watch's own positions lie outside the span");
+        Assert.True(against > 500, $"only {against} records were compared with the whole route's");
+
+        // And the metres: the fragment's own length across the span, the watch's own either side,
+        // so the total is the sum of the two sources and nothing was invented (AD-26).
+        Assert.Equal(
+            fragment.Length,
+            DistanceAt(result, reach.ToSeconds) - DistanceAt(result, reach.FromSeconds),
+            2.0);
+        Assert.Equal(
+            DistanceAt(result, reach.FromSeconds)
+                + fragment.Length
+                + (result.Records[^1].Distance - DistanceAt(result, reach.ToSeconds)),
+            result.Report.RepairedDistanceMeters,
+            2.0);
+
+        // A repaired run has to stay a run: monotone, and with its own time (AD-8).
+        Assert.Equal(original.ElapsedSeconds, result.Report.ElapsedSeconds, 1.0);
+        for (var index = 1; index < result.Records.Count; index++)
+            Assert.True(
+                result.Records[index].Distance >= result.Records[index - 1].Distance,
+                $"distance fell at record {index}");
+    }
+
+    /// <summary>The stretch of <paramref name="route"/> between two of its own cumulative distances.</summary>
+    private static ReferenceTrack Slice(
+        ReferenceTrack route,
+        double fromMetres,
+        double toMetres,
+        AlignmentOptions options)
+    {
+        var points = route.Points
+            .Select((point, index) => (Point: point, Metre: route.Cumulative[index]))
+            .Where(pair => pair.Metre >= fromMetres && pair.Metre <= toMetres)
+            .Select(pair => new TrackPoint(pair.Point, null))
+            .ToArray();
+
+        return ReferenceTrack.FromPoints(points, options);
+    }
+
+    /// <summary>Which kind of zone a second of a repair fell in, by the repair's own report.</summary>
+    private static ZoneKind KindAt(RepairResult result, double seconds)
+    {
+        foreach (var zone in result.Report.Zones)
+        {
+            if (seconds <= zone.ToSeconds)
+                return zone.Kind;
+        }
+
+        return result.Report.Zones[^1].Kind;
+    }
+
+    /// <summary>The repaired distance at a second of the activity.</summary>
+    private static double DistanceAt(RepairResult result, double seconds) =>
+        result.Records
+            .Last(record => (record.Timestamp - result.Records[0].Timestamp).TotalSeconds <= seconds)
+            .Distance;
+
     private static string FindPrivateFixtures()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);

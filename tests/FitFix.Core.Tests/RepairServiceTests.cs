@@ -249,16 +249,23 @@ public class RepairServiceTests
     }
 
     [Fact]
-    public void Track_from_another_city_raises_a_warning()
+    public void Track_from_another_city_is_refused_rather_than_repaired()
     {
+        // A track about another route attaches to the activity at neither of its own ends, nor
+        // anywhere between them, and AD-27 answers that with a refusal: before story 5.1 the repair
+        // went ahead on the assumption that the activity begins where the track does, which for
+        // these two files draws the athlete 129 km from where they ran.
         var run = SyntheticRun.Create();
         var shifted = run.TrackPoints
             .Select(p => new TrackPoint(new GeoPoint(p.Position.Latitude + 1.0, p.Position.Longitude + 1.0), p.Altitude))
             .ToArray();
 
-        var result = RepairService.Repair(run.Original, ReferenceTrack.FromPoints(shifted, SyntheticRun.Options));
+        var refusal = Assert.Throws<MalformedArgumentException>(() => RepairService.Repair(
+            run.Original,
+            ReferenceTrack.FromPoints(shifted, SyntheticRun.Options)));
 
-        Assert.Contains(DiagnosticCodes.TrackFarFromOriginal, result.Report.Warnings);
+        Assert.Equal(DiagnosticCodes.TrackAttachesNowhere, refusal.Code);
+        Assert.True(DiagnosticCodes.IsDeclared(refusal.Code));
     }
 
     [Fact]

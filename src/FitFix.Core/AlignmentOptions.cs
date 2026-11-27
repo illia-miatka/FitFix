@@ -79,8 +79,37 @@ public sealed record AlignmentOptions
     /// <summary>Скільки часу позиція має не змінюватись, щоб вважати GPS завислим, с.</summary>
     public double StallMinimumSeconds { get; init; } = 90;
 
-    /// <summary>Поріг «трек явно не про цю активність» (FR-3), м.</summary>
+    /// <summary>
+    /// Поріг «трек явно не про цю активність» (FR-3), м. Judged against the closest the anchor
+    /// search ever came to the track, never against the Original's first position alone: a track
+    /// covering the last five kilometres of a fifty-kilometre run starts 45 km from where the
+    /// activity did, and a warning that is false for every fragment teaches people to ignore
+    /// warnings (AD-27). Past this distance nothing on the track attaches at all and the repair is
+    /// refused instead.
+    /// </summary>
     public double TrackFarFromOriginalMeters { get; init; } = 2_000;
+
+    /// <summary>
+    /// How near one of a fragment's own two endpoints the activity must come for that endpoint to
+    /// attach there, m (AD-27). A fragment is attached by its ends and not by a chain, so this is
+    /// the threshold the whole mechanism turns on: too small and a route drawn by hand attaches
+    /// nowhere, too large and a lap's own closing metres offer the same place twice.
+    /// <para>
+    /// Generous next to <see cref="AnchorToleranceMeters"/>, which judges a position against the
+    /// nearest point of the whole track: an endpoint is one fixed point, the watch's fix near it
+    /// carries its own error, and a route drawn in an editor after the run puts its ends where the
+    /// athlete pressed the button only to the nearest block. Measured on the 23.11.2026 files, where
+    /// the two ends of a real fragment attach 7 m and 44 m from the athlete's own positions.
+    /// </para>
+    /// <para>
+    /// Offering the same place twice is not a hazard this number can remove — a lap route's first and
+    /// last hundred metres run along the same street, so the fragment's end is 54 m from where the
+    /// activity started as well as 44 m from where it passed at the finish — and it is not asked to:
+    /// which pair of places the fragment attaches between is settled by the order they are run in
+    /// and by the failure the span claims to cover.
+    /// </para>
+    /// </summary>
+    public double TrackEndAttachmentMeters { get; init; } = 100;
 
     /// <summary>
     /// Minimum spacing between two consecutive reference-track points, m. A point closer than

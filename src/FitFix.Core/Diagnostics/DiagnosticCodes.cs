@@ -76,6 +76,16 @@ public static class DiagnosticCodes
     /// <summary>The track file's format could not be recognised; FIT, GPX and TCX are supported.</summary>
     public const string TrackFormatUnknown = "TRACK_FORMAT_UNKNOWN";
 
+    /// <summary>
+    /// The track cannot be laid on this activity at all (AD-27). A fragment's two ends find no pair
+    /// of places on it, in the order they would have to be run in and far enough apart in time to
+    /// hold the route between them; or a whole track comes nowhere near a single position of the
+    /// Original's. Either way the repair would have to guess where the route belongs, and a guess
+    /// there is nonsense dressed as a result. Its own code rather than
+    /// <see cref="TrackFarFromOriginal"/>, which is a warning over a repair that still happened.
+    /// </summary>
+    public const string TrackAttachesNowhere = "TRACK_ATTACHES_NOWHERE";
+
     /// <summary>The activity to write holds fewer than two records, so it has no duration.</summary>
     public const string ActivityTooFewRecords = "ACTIVITY_TOO_FEW_RECORDS";
 
@@ -211,6 +221,7 @@ public static class DiagnosticCodes
         [TrackTooFewPoints] = DiagnosticSeverity.Blocking,
         [TrackWithoutDistinctPoints] = DiagnosticSeverity.Blocking,
         [TrackFormatUnknown] = DiagnosticSeverity.Blocking,
+        [TrackAttachesNowhere] = DiagnosticSeverity.Blocking,
         [ActivityTooFewRecords] = DiagnosticSeverity.Blocking,
         [ActivityWithoutElapsedTime] = DiagnosticSeverity.Blocking,
         [ActivityTooManyLaps] = DiagnosticSeverity.Blocking,

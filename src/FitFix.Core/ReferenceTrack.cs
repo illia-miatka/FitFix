@@ -122,7 +122,13 @@ public sealed class ReferenceTrack
         return best;
     }
 
-    /// <summary>Найменша відстань від точки до всього треку — для перевірки сумісності (FR-3).</summary>
+    /// <summary>
+    /// The smallest distance from a point to the whole track, m — how far off the route a single
+    /// position is, with no window and no monotonicity. The anchor search judges compatibility
+    /// against the closest it ever came to attaching instead (FR-3, AD-27), and asks this only when
+    /// it examined nothing at all: the Original's own first position is what can still be measured
+    /// against a track then.
+    /// </summary>
     public double MinDeviationToWholeTrack(GeoPoint point) => Project(point, 0, SegmentCount - 1).Deviation;
 
     private int FindSegment(double distance)
