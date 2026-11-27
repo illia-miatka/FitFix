@@ -16,13 +16,19 @@ public class PrivateFixtureTests
     /// an online editor) and the 23.11.2026 case (a GPX route drawn after the run), whose
     /// expected length is the one the source tool reported.
     /// </summary>
+    /// <param name="expectedRepairedDistance">
+    /// The metres this pair repairs to, or 0 where nobody has measured them on this machine. A
+    /// window alone is not enough: Story 5.1 moved this pair by 29 m with every zone, anchor and
+    /// warning identical, and only a pinned figure makes a change like that announce itself.
+    /// </param>
     [Theory]
-    [InlineData("Run_4k_Chabany.fit", "FFF.fit", 6537.0)]
-    [InlineData("Run_5k_Chabany.fit", "Route_6_32km_Kyiv.gpx", 6320.0)]
+    [InlineData("Run_4k_Chabany.fit", "FFF.fit", 6537.0, 0.0)]
+    [InlineData("Run_5k_Chabany.fit", "Route_6_32km_Kyiv.gpx", 6320.0, 6324.23)]
     public void A_real_pair_is_repaired_to_a_plausible_distance_and_the_original_time(
         string originalName,
         string trackName,
-        double expectedTrackLength)
+        double expectedTrackLength,
+        double expectedRepairedDistance)
     {
         var directory = FindPrivateFixtures();
         var originalPath = Path.Combine(directory, originalName);
@@ -44,11 +50,14 @@ public class PrivateFixtureTests
         // GPS jitter adds and loses the metres a drawn polyline spends going the long way round.
         // Either direction is data; 3 % each way is AD-26's budget for it, and past that the
         // positions are the problem rather than the track. Measured on the 23.11.2026 pair: the
-        // repaired distance came in 0.8 % under the chosen length.
+        // repaired distance comes in 0.33 % under the chosen length.
         Assert.InRange(
             result.Report.RepairedDistanceMeters,
             result.Report.UsedTrackLengthMeters * 0.97,
             result.Report.UsedTrackLengthMeters * 1.03);
+
+        if (expectedRepairedDistance > 0)
+            Assert.Equal(expectedRepairedDistance, result.Report.RepairedDistanceMeters, 0.5);
 
         // The measured zone has to cover at least half the activity, or the algorithm lost its
         // anchors: both pairs keep the watch's own geometry over most of the run.

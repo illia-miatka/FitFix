@@ -2,7 +2,7 @@
 title: 'Story 5.1 — A track shorter than the activity repairs its own stretch'
 type: 'feature'
 created: '2026-11-23'
-status: 'in-progress'
+status: 'done'
 route: 'dispatch'
 review_loop_iteration: 0
 baseline_commit: '42863bdb313a6b80a33a0ad91a3e1098df00f092'
@@ -78,3 +78,57 @@ The two pins are the whole story. A whole track is the case where both happen to
 Zones are where the subtlety hides. Today the head and tail of the chain are estimated because, with a whole track, no anchor before the first means no fix before the first. With a fragment it means the opposite: the watch was right there, and that is precisely why no anchor attached. The kind has to follow the original's own positions, not the anchors' reach.
 
 Detection is deliberately structural here, not a mode: the anchors either attach at the track's ends or they do not. Story 5.2 adds the user-facing gate that asks before a fragment is used, and that is where a mode belongs.
+
+## Review Triage Log
+
+The first implementation passed 239 synthetic tests and was wrong on the files the story exists
+for. On Ілля's own run, a tail fragment of the route returned **706 m**: the chain attached the
+first three minutes to the fragment's far end -- his route is a lap, start and finish 51 m apart --
+and thirty-one minutes of good GPS became one estimated zone with no track beneath it. A fragment
+of a different stretch returned 5552 m with the fragment ignored entirely. The cause was one
+mechanism: zone kind was derived from how far the anchor chain reached, which with a fragment says
+nothing about where the GPS broke. It was rebuilt on what AD-27 actually describes -- the fragment
+attaches by its own two endpoints, each matched against the whole activity, the pair ordered in
+time, the fragment's length reachable in the span's moving seconds, and of the survivors the span
+the activity could least account for itself. The same two files now return 6417.5 m and 6985.9 m,
+with the span straddling the failure in the first.
+
+The lesson is the fixtures, again. Every synthetic course is open and tidy; a lap whose fragment
+ends near its own start cannot exist in them, so nothing could fail. `CreateTwoLaps` and the two
+real rows in `PrivateFixtureTests` exist for that reason.
+
+The verification-gap layer ran against the first version and found five things, all folded into the
+rebuild. Two were regressions that would have shipped: a record with no own position inside a
+measured zone was drawn at the span's boundary -- 1752 m from where the same run repairs with a
+whole track, with distance frozen for a minute, and monotone, so nothing noticed -- and an activity
+whose watch froze at second 0 stopped reporting `TRACK_FAR_FROM_ORIGINAL` at all, so a route from
+129 km away repaired silently past a gate that withholds the download (AD-22). It is a refusal now.
+The other three were unpinned mechanisms: the smoothing clip's forward half could be deleted with
+the suite green, the 200 m attachment threshold was pinned only by private files CI never has, and
+a whole-track number in `TrackLengthTests` had moved with the fixture adapted around it rather than
+explained. The threshold is now synthetic and 100 m, both clip halves fail a named test, and
+`TrackLengthTests` is back to HEAD bit-for-bit.
+
+One number moved that the report said had not, and finding it took a bisection. The real
+whole-route pair repairs to **6324.2330 m** where it gave 6295.08 m before, with every zone, anchor
+and warning identical. Not the interpolation clamp and not the bridging -- both were ruled out by
+measurement. It is `Accumulate`: the step into the first measured second after an estimated zone
+used to be the distance from the previous record's *raw* position, even though that record sat in
+an estimated zone and was emitted at a point taken from the track. The step mixed a position we
+never wrote with one we did. It now takes the track's increment there, like the rest of that zone.
+Restoring the old lookup returns 6295.08 m exactly, which is how the cause was confirmed. The new
+figure is the coherent one -- 29 m over four seams -- and it is pinned in `PrivateFixtureTests` to
+half a metre, because a 3 % window is what let it through unnoticed in the first place.
+
+Verified independently: 246 core and 117 API tests, 85 on the frontend; the real pair at the
+baseline commit measured in a separate worktree for the comparison above; both fragments and the
+whole route run through the CLI.
+
+For Ілля: a fragment of a stretch that was never broken is used all the same -- `mid.gpx` covers
+route metres 2508-3486, which he ran cleanly at 828-1148 s, and those 320 seconds are redrawn from
+his fragment. Refusing would hand nothing back to somebody whose fragment matches their own route
+to within 2 m, so it is used and scored last among candidates. Story 5.2 is where the service says
+which stretch it means and asks before doing it.
+
+Parked and untouched: the greedy whole-track chain (DP/LIS), which is why a middle fragment with a
+dropout longer than the search window attaches only through the fragment path.
