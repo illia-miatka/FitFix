@@ -4,7 +4,15 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { App } from './App';
 import { uk } from './i18n/uk';
-import { aFragment, aReport, anOriginal, aTrack, answers, fitFile } from './test/fixtures';
+import {
+  aConfirmedFragment,
+  aFragment,
+  aReport,
+  anOriginal,
+  aTrack,
+  answers,
+  fitFile,
+} from './test/fixtures';
 
 /**
  * The service, stubbed: each zone asks `/api/inspect` about its own file (Story 2.5) and the
@@ -405,7 +413,10 @@ describe('confirming a fragment', () => {
       asks += 1;
       const coverage = (request.body as FormData).get('trackCoverage');
       expect(coverage).toBe(asks === 1 ? null : expected);
-      return answers(asks === 1 ? aReport(aFragment) : aReport());
+      // Confirming the stretch answers the question and keeps the span; calling the track the
+      // whole route leaves no stretch at all.
+      const accepted = expected === 'fragment' ? aReport(aConfirmedFragment) : aReport();
+      return answers(asks === 1 ? aReport(aFragment) : accepted);
     });
   }
 
@@ -433,6 +444,11 @@ describe('confirming a fragment', () => {
     expect(screen.queryByText(uk.codes.TRACK_IS_A_FRAGMENT)).not.toBeInTheDocument();
     expect(repairCalls(fetched)).toBe(2);
 
+    // The question is answered and the stretch is still on the screen that offers the file
+    // (Story 5.3), together with what was left alone.
+    expect(screen.getByText('26:52–32:56')).toBeInTheDocument();
+    expect(screen.getByText(uk.result.keptOwn)).toBeInTheDocument();
+
     // Both files went again, each named for its role (AD-15): nothing is stored, so confirming is
     // the same request with one field more (AD-3).
     const repairs = fetched.mock.calls.filter(([url]) => url === '/api/repair');
@@ -452,6 +468,7 @@ describe('confirming a fragment', () => {
 
     expect(await screen.findByRole('button', { name: uk.result.download })).toBeInTheDocument();
     expect(screen.queryByText(uk.codes.TRACK_IS_A_FRAGMENT)).not.toBeInTheDocument();
+    expect(screen.queryByText(uk.result.redrawn)).not.toBeInTheDocument();
     expect(repairCalls(fetched)).toBe(2);
   });
 

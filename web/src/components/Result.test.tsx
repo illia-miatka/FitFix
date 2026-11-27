@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { Result } from './Result';
 import type { RepairReport } from '../api/repair';
-import { aFragment, aReport } from '../test/fixtures';
+import { aConfirmedFragment, aFragment, aReport } from '../test/fixtures';
 import { uk } from '../i18n/uk';
 
 /**
@@ -267,7 +267,7 @@ describe('the fragment gate', () => {
   it('offers the file as soon as the confirmed answer arrives', () => {
     // What the page renders once the repeated request has come back: the same repair without the
     // warning, so the gate is gone with it and the span was never a flag of its own.
-    show(aReport({ redrawn: aFragment.redrawn, warnings: [] }));
+    show(aReport(aConfirmedFragment));
 
     expect(screen.getByRole('button', { name: uk.result.download })).toBeEnabled();
     expect(
@@ -324,6 +324,46 @@ describe('the fragment gate', () => {
     expect(screen.getByText(uk.codes.TRACK_IS_A_FRAGMENT)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: uk.result.confirmFragment })).toBeEnabled();
     expect(screen.queryByRole('button', { name: uk.result.download })).not.toBeInTheDocument();
+  });
+});
+
+describe('a result made from a fragment', () => {
+  it('still names the stretch once the question is answered, and says the rest is the watch\'s', () => {
+    show(aReport(aConfirmedFragment));
+
+    // Once, with its seconds and its metres: the gate that asked is gone, this is the answer.
+    expect(screen.getAllByText(uk.result.redrawn)).toHaveLength(1);
+    expect(screen.getByText('26:52–32:56')).toBeInTheDocument();
+    expect(screen.getByText(`1,23 ${uk.units.kilometres}`)).toBeInTheDocument();
+    expect(screen.getByText(uk.result.keptOwn)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: uk.result.download })).toBeEnabled();
+  });
+
+  it('names the stretch once while it is still being asked about', () => {
+    show(aReport(aFragment));
+
+    // The gate and the answer share one component; the question must not show the stretch twice,
+    // nor claim the rest is the watch's before the athlete has said the stretch is right.
+    expect(screen.getAllByText(uk.result.redrawn)).toHaveLength(1);
+    expect(screen.queryByText(uk.result.keptOwn)).not.toBeInTheDocument();
+  });
+
+  it('says nothing about a stretch for a track that was the whole route', () => {
+    show(aReport());
+
+    expect(screen.queryByText(uk.result.redrawn)).not.toBeInTheDocument();
+    expect(screen.queryByText(uk.result.keptOwn)).not.toBeInTheDocument();
+  });
+
+  it('reads an answer from a service that has no such field as a whole route', () => {
+    // A server a version behind sends no `redrawn` at all, which means what null means.
+    const older = Object.fromEntries(
+      Object.entries(aReport()).filter(([field]) => field !== 'redrawn'),
+    );
+    show(older as unknown as RepairReport);
+
+    expect(screen.queryByText(uk.result.redrawn)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: uk.result.download })).toBeEnabled();
   });
 });
 

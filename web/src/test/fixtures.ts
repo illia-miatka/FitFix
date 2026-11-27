@@ -130,3 +130,14 @@ export const aFragment = {
   redrawn: { fromSeconds: 1612, toSeconds: 1976, distanceMeters: 1234 },
   warnings: [{ code: 'TRACK_IS_A_FRAGMENT', severity: 'blocking' }],
 } satisfies Partial<RepairReport>;
+
+/**
+ * What the service answers once the fragment is confirmed (Story 5.3): the same repair with the
+ * warning gone and the span still stated, because confirming answers the question rather than
+ * changing what was done (`FragmentTests.Confirming_the_fragment_changes_nothing_but_the_question`).
+ * Modelling it as `redrawn: null` would hide the one screen that has to name the stretch.
+ */
+export const aConfirmedFragment = {
+  redrawn: aFragment.redrawn,
+  warnings: [],
+} satisfies Partial<RepairReport>;

@@ -338,6 +338,29 @@ public class FragmentTests
     }
 
     [Fact]
+    public void A_track_is_not_called_far_from_the_activity_for_being_short()
+    {
+        // Story 5.3: the activity's first position is kilometres from where a tail fragment starts,
+        // and that is what the old whole-track reading judged "far". A fragment attaches by its own
+        // ends, so being short and being elsewhere are different findings (AD-27).
+        var run = SyntheticRun.Create();
+        var tail = run.WithTrackCovering(TailFragmentFrom, run.TrueRouteLength);
+
+        var middleRun = SyntheticRun
+            .Create(withGpsFailure: false)
+            .WithoutFixesBetween(MiddleDropoutFrom, MiddleDropoutTo);
+        var middle = middleRun.WithTrackCovering(MiddleFragmentFrom, MiddleFragmentTo);
+
+        foreach (var fragment in new[] { tail, middle })
+        {
+            var result = RepairService.Repair(fragment.Original, fragment.ReferenceTrack);
+
+            Assert.Contains(DiagnosticCodes.TrackIsAFragment, result.Report.Warnings);
+            Assert.DoesNotContain(DiagnosticCodes.TrackFarFromOriginal, result.Report.Warnings);
+        }
+    }
+
+    [Fact]
     public void A_caller_who_says_the_track_is_the_whole_route_is_never_asked_about_a_fragment()
     {
         // The answer a lap course gets when the athlete knows better than the detector: the
