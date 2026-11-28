@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using FitFix.Core.Diagnostics;
 
@@ -49,7 +50,12 @@ public static class ProblemDetailsFactory
     /// thrown: this is called from inside failure handling, where a second exception would
     /// escape the handler and take the first one's answer with it.
     /// </summary>
-    public static async Task<bool> TryWriteAsync(HttpContext context, ProblemResponse problem)
+    /// <param name="retryAfterSeconds">
+    /// How long the client should wait, for the refusals where waiting is the whole answer —
+    /// a rate limit, and nothing else so far. It is set here rather than by the caller because
+    /// the response is cleared below, which would take any header the caller had set with it.
+    /// </param>
+    public static async Task<bool> TryWriteAsync(HttpContext context, ProblemResponse problem, int? retryAfterSeconds = null)
     {
         ArgumentNullException.ThrowIfNull(problem);
 
@@ -62,6 +68,9 @@ public static class ProblemDetailsFactory
             // would otherwise describe a body that is no longer being sent.
             context.Response.Clear();
             context.Response.StatusCode = problem.Status;
+
+            if (retryAfterSeconds is { } seconds)
+                context.Response.Headers.RetryAfter = seconds.ToString(CultureInfo.InvariantCulture);
 
             // CancellationToken.None on purpose: an aborted request must not turn the write
             // into a cancellation the caller then reports as a second, unrelated failure.

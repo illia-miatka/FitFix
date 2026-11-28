@@ -39,6 +39,7 @@ public static class FailureStatus
             DiagnosticCodes.InternalError => StatusCodes.Status500InternalServerError,
             DiagnosticCodes.RouteNotFound => StatusCodes.Status404NotFound,
             DiagnosticCodes.MethodNotAllowed => StatusCodes.Status405MethodNotAllowed,
+            DiagnosticCodes.TooManyRequests => StatusCodes.Status429TooManyRequests,
             DiagnosticCodes.MediaTypeNotSupported => StatusCodes.Status415UnsupportedMediaType,
             // Everything else is a problem with the input the user offered (AD-22).
             _ => StatusCodes.Status400BadRequest
@@ -57,6 +58,7 @@ public static class FailureStatus
         StatusCodes.Status405MethodNotAllowed => DiagnosticCodes.MethodNotAllowed,
         StatusCodes.Status413PayloadTooLarge => DiagnosticCodes.FileTooLarge,
         StatusCodes.Status415UnsupportedMediaType => DiagnosticCodes.MediaTypeNotSupported,
+        StatusCodes.Status429TooManyRequests => DiagnosticCodes.TooManyRequests,
         // Any other refusal of the request itself; anything at 500 or above is ours.
         < StatusCodes.Status500InternalServerError => DiagnosticCodes.RequestMalformed,
         _ => DiagnosticCodes.InternalError

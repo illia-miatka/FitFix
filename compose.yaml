@@ -25,5 +25,22 @@ services:
       # sets it here and nowhere else.
       # FITFIX_MAX_UPLOAD_BYTES: "20971520"
 
+      # How often one client may ask, and how many /api requests are served at once. The
+      # defaults are in RateLimits.Defaults and are meant for one small public machine;
+      # nothing needs to be set here to have them.
+      # FITFIX_RATE_INSPECT_PERMITS: "60"
+      # FITFIX_RATE_INSPECT_WINDOW_SECONDS: "60"
+      # FITFIX_RATE_REPAIR_PERMITS: "20"
+      # FITFIX_RATE_REPAIR_WINDOW_SECONDS: "300"
+      # FITFIX_RATE_CONCURRENCY: "2"
+      # FITFIX_RATE_QUEUE: "4"
+
+      # Which peers may speak for a client with X-Forwarded-For. Unset — as here, where the
+      # port is published straight onto the host — means the socket's own address is the
+      # client's, so nobody can own a rate-limiting partition by sending a header. Behind a
+      # proxy that is the only way in (Caddy on loopback, a platform's router), set it to the
+      # proxy's address or network, or to "any" when no other peer can reach the container.
+      # FITFIX_TRUSTED_PROXIES: "any"
+
     # The healthcheck is the image's own: it knows its port and carries the wget to use it,
     # so there is nothing to repeat here.
