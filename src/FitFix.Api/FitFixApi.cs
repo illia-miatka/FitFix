@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Connections;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.AspNetCore.Http.Timeouts;
 using Microsoft.Extensions.FileProviders;
 
 namespace FitFix.Api;
@@ -78,8 +79,29 @@ public static class FitFixApi
 
         AddClientAddress(builder);
         AddRateLimiting(builder);
+        AddTimeouts(builder);
+
+        // The version of the server is nobody's business, and a public deployment should not
+        // announce it on every answer.
+        builder.WebHost.ConfigureKestrel(options => options.AddServerHeader = false);
 
         return builder;
+    }
+
+    /// <summary>
+    /// Bounds how long the service waits for its own answer. The middleware turns a handler that
+    /// overran into a bodiless 504, which the failure handler then writes up as
+    /// <c>REQUEST_TIMED_OUT</c> like any other framework refusal (AD-22).
+    /// </summary>
+    private static void AddTimeouts(WebApplicationBuilder builder)
+    {
+        var timeouts = RequestTimeouts.From(builder.Configuration);
+
+        builder.Services.AddRequestTimeouts(options =>
+        {
+            options.DefaultPolicy = new RequestTimeoutPolicy { Timeout = timeouts.Default };
+            options.AddPolicy(RequestTimeouts.RepairPolicy, timeouts.Repair);
+        });
     }
 
     /// <summary>
@@ -234,6 +256,10 @@ public static class FitFixApi
         // matches none, and the body-size refusal Kestrel raises while a handler is reading.
         app.Use((context, next) => HandleAsync(context, next, logger, maxUploadBytes));
 
+        // Inside the failure handler, so a problem document leaves with these headers too, and
+        // before anything can write a response: a response that has started takes no header.
+        app.Use(SecurityHeaders.WriteAsync);
+
         // Story 2.8: the built SPA on the same origin as the API (AD-12). Inside the failure
         // handler, so a static file that cannot be read still leaves as a problem document.
         var webRoot = app.Environment.WebRootFileProvider;
@@ -259,6 +285,10 @@ public static class FitFixApi
         // the platform's own probe must not be refused because a stranger is busy uploading.
         app.UseRateLimiter();
 
+        // Inside the failure handler as well: what it produces when a handler overruns is a
+        // bodiless 504, which the handler above turns into REQUEST_TIMED_OUT.
+        app.UseRequestTimeouts();
+
         app.MapGet("/health", () => Results.Ok(new HealthResponse("ok")));
 
         // Story 2.2. Its own refusals travel through the handler above like every other, so the
@@ -267,7 +297,9 @@ public static class FitFixApi
 
         // Story 2.3, through the same handler: the repair's own refusals are the core's, each
         // carrying a code, and the one answer it writes itself is the successful one.
-        RepairEndpoint.Map(app).RequireRateLimiting(RateLimits.RepairPolicy);
+        RepairEndpoint.Map(app)
+            .RequireRateLimiting(RateLimits.RepairPolicy)
+            .WithRequestTimeout(RequestTimeouts.RepairPolicy);
 
         additionalEndpoints?.Invoke(app);
 

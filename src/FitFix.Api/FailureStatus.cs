@@ -40,6 +40,7 @@ public static class FailureStatus
             DiagnosticCodes.RouteNotFound => StatusCodes.Status404NotFound,
             DiagnosticCodes.MethodNotAllowed => StatusCodes.Status405MethodNotAllowed,
             DiagnosticCodes.TooManyRequests => StatusCodes.Status429TooManyRequests,
+            DiagnosticCodes.RequestTimedOut => StatusCodes.Status504GatewayTimeout,
             DiagnosticCodes.MediaTypeNotSupported => StatusCodes.Status415UnsupportedMediaType,
             // Everything else is a problem with the input the user offered (AD-22).
             _ => StatusCodes.Status400BadRequest
@@ -59,6 +60,9 @@ public static class FailureStatus
         StatusCodes.Status413PayloadTooLarge => DiagnosticCodes.FileTooLarge,
         StatusCodes.Status415UnsupportedMediaType => DiagnosticCodes.MediaTypeNotSupported,
         StatusCodes.Status429TooManyRequests => DiagnosticCodes.TooManyRequests,
+        // What the request-timeout middleware settles on when a handler does not finish. Above
+        // 500 and still not ours to apologise for, which is why it is named before the fallback.
+        StatusCodes.Status504GatewayTimeout => DiagnosticCodes.RequestTimedOut,
         // Any other refusal of the request itself; anything at 500 or above is ours.
         < StatusCodes.Status500InternalServerError => DiagnosticCodes.RequestMalformed,
         _ => DiagnosticCodes.InternalError

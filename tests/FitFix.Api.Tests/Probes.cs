@@ -72,6 +72,15 @@ internal static class Probes
         // different answer from a path that matched nothing, and Story 2.8's index.html
         // fallback will be a third.
         endpoints.MapGet("/probe/missing-resource", () => Results.NotFound());
+
+        // A handler that does not finish, which is the only way to observe a request timeout.
+        // It waits on the request's own cancellation rather than on a clock, so the test is
+        // over the moment the timeout fires and never a second later.
+        endpoints.MapGet("/probe/never-finishes", async (HttpContext context) =>
+        {
+            await Task.Delay(Timeout.Infinite, context.RequestAborted);
+            return Results.Ok();
+        });
     }
 
     private static Exception Failure(string? kind) => kind switch

@@ -127,6 +127,16 @@ jobs:
           curl --fail --silent --output /dev/null --write-out '%{content_type}' localhost:8080/result | grep -q text/html
           test "$(curl --silent --output /dev/null --write-out '%{http_code}' localhost:8080/api/nonsense)" = 404
           curl --silent localhost:8080/api/nonsense | grep -q ROUTE_NOT_FOUND
+          # The headers the public deployment relies on, asserted on what ships rather than on
+          # the test host: the policy that lets the basemap load, and the referrer policy the
+          # OpenStreetMap tile terms require us to keep sending.
+          # A GET with its headers dumped, not a HEAD: /health is mapped for GET alone.
+          headers=$(curl --fail --silent --dump-header - --output /dev/null localhost:8080/health)
+          printf '%s\n' "$headers" | grep -qi 'content-security-policy:.*tile.openstreetmap.org'
+          printf '%s\n' "$headers" | grep -qi 'referrer-policy: strict-origin-when-cross-origin'
+          # No Server header at all: -v would pass on any other line, so the match is negated
+          # instead of inverted.
+          ! printf '%s\n' "$headers" | grep -qi '^server:'
 
       - name: Unprivileged, on a filesystem it cannot write
         run: |
