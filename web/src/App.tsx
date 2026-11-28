@@ -6,6 +6,7 @@ import { Dropzone } from './components/Dropzone';
 import { HowItWorks } from './components/HowItWorks';
 import { Notice } from './components/Notice';
 import { Result } from './components/Result';
+import { drawnTrackFile, type Point } from './drawing';
 import { codeText } from './errors';
 import { uk } from './i18n/uk';
 
@@ -82,14 +83,31 @@ export function App() {
     [original, track],
   );
 
-  async function answerCoverage(coverage: TrackCoverageMode): Promise<CoverageAnswer> {
-    if (original === null || track === null || running.current) return { ok: false };
+  /**
+   * The drawn stretch (Story 5.4): the same repair with the points the athlete placed as the
+   * track and the coverage stated as a fragment, because drawing it is the answer to the question.
+   * The drawn file replaces the track the page holds, so a later answer repeats this request and
+   * not the one the drawing replaced.
+   */
+  const drawStretch = useCallback(
+    (line: Point[]) => answerCoverage('fragment', drawnTrackFile(line)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [original],
+  );
+
+  async function answerCoverage(
+    coverage: TrackCoverageMode,
+    replacement?: File,
+  ): Promise<CoverageAnswer> {
+    const chosen = replacement ?? track;
+    if (original === null || chosen === null || running.current) return { ok: false };
 
     running.current = true;
-    const outcome = await askForRepair(original, track, undefined, coverage);
+    const outcome = await askForRepair(original, chosen, undefined, coverage);
     running.current = false;
 
     if (outcome.status === 'repaired') {
+      if (replacement !== undefined) setTrack(replacement);
       setState({ status: 'repaired', report: outcome.report, originalName: original.name });
       return { ok: true };
     }
@@ -136,6 +154,7 @@ export function App() {
             onStartAgain={startAgain}
             onConfirmFragment={confirmFragment}
             onUseWholeRoute={useWholeRoute}
+            onDrawStretch={drawStretch}
           />
         </div>
       </main>
@@ -144,9 +163,7 @@ export function App() {
 
   return (
     <main className="mx-auto w-full max-w-[1200px] px-gutter py-section">
-      <h1 className="type-display max-w-[20ch] text-3xl text-text md:text-5xl">
-        {uk.hero.title}
-      </h1>
+      <h1 className="type-display max-w-[20ch] text-3xl text-text md:text-5xl">{uk.hero.title}</h1>
       <p className="mt-gutter max-w-[60ch] text-text-muted">{uk.hero.lede}</p>
 
       <div className="mt-section grid grid-cols-1 gap-gutter md:grid-cols-2">
@@ -265,7 +282,5 @@ type RepairState =
  * the file the person came for.
  */
 function withoutFailure(state: RepairState): RepairState {
-  return state.status === 'refused' || state.status === 'unreachable'
-    ? { status: 'idle' }
-    : state;
+  return state.status === 'refused' || state.status === 'unreachable' ? { status: 'idle' } : state;
 }

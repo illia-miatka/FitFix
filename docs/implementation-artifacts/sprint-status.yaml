@@ -5,7 +5,7 @@
 # bmad-build оновлює цей файл автоматично, коли бере сторі в роботу.
 
 generated: 11-19-2026 23:03
-last_updated: 11-27-2026 22:10
+last_updated: 11-28-2026 13:00
 project: FitFix
 project_key: NOKEY
 tracking_system: file-system
@@ -51,5 +51,5 @@ development_status:
   5-1-трек-коротший-за-активність-лагодить-свою-ділянку: done
   5-2-сервіс-питає-перш-ніж-вважати-трек-фрагментом: done
   5-3-видно-яку-саме-ділянку-перемальовано: done
-  5-4-домалювати-зниклу-ділянку-на-карті: backlog
+  5-4-домалювати-зниклу-ділянку-на-карті: review
   epic-5-retrospective: optional

@@ -166,6 +166,43 @@
   transform: rotate(45deg);
 }
 
+/*
+ * Drawing a missing stretch (Story 5.4). What is drawn is calculated, not measured, so it takes
+ * the estimated colour; its points are filled and the two ends it attaches to are hollow rings.
+ * The crosshair marks the map centre, which is where Enter places a point.
+ */
+.route-drawn {
+  stroke: var(--color-estimated);
+  stroke-width: 4px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.route-drawn-point {
+  fill: var(--color-estimated);
+  fill-opacity: 1;
+  stroke: var(--color-bg);
+  stroke-width: 2px;
+}
+.route-pin-end .route-pin-shape {
+  background: var(--color-bg);
+  border-color: var(--color-estimated);
+  border-radius: var(--radius-pill);
+}
+.route-crosshair {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 1000;
+  width: 24px;
+  height: 24px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  background:
+    linear-gradient(var(--color-estimated), var(--color-estimated)) center / 2px 100% no-repeat,
+    linear-gradient(var(--color-estimated), var(--color-estimated)) center / 100% 2px no-repeat;
+  filter: drop-shadow(0 0 2px var(--color-bg));
+}
+
 /* The basemap is a light map, darkened here and only here: the tile pane is its own layer, so the
    lines and the pins above it keep their token colours. Without this the map is a white slab in a
    dark page, and no jsdom test could say so. */

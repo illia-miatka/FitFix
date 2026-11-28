@@ -4,6 +4,7 @@ import type { RedrawnSpan, RepairReport, RepairWarning } from '../api/repair';
 import type { CoverageAnswer } from '../App';
 // The one place a code becomes a sentence (Story 2.7).
 import { codeText } from '../errors';
+import type { Point } from '../drawing';
 import { duration, kilometres, pace } from '../format';
 import { RouteMap, type MapTexts } from './RouteMap';
 
@@ -59,6 +60,11 @@ export interface ResultProps {
   readonly onConfirmFragment: () => Promise<CoverageAnswer>;
   /** The same question answered the other way: the track is the whole route (Story 5.2). */
   readonly onUseWholeRoute: () => Promise<CoverageAnswer>;
+  /**
+   * Repeats the repair with the drawn line as the track (Story 5.4). Absent, the map offers no
+   * drawing: a screen that cannot act on a drawing has no business inviting one.
+   */
+  readonly onDrawStretch?: (line: Point[]) => Promise<CoverageAnswer>;
 }
 
 /** What the saved file is called, as KF-1 names it: `Run_4k_Chabany_fixed.fit`. */
@@ -92,6 +98,7 @@ export function Result({
   onStartAgain,
   onConfirmFragment,
   onUseWholeRoute,
+  onDrawStretch,
 }: ResultProps) {
   const { before, after } = report;
 
@@ -167,9 +174,7 @@ export function Result({
         <Delta
           label={texts.pace}
           texts={texts}
-          before={
-            (recorded === null ? null : pace(recorded, seconds, units)) ?? texts.noPace
-          }
+          before={(recorded === null ? null : pace(recorded, seconds, units)) ?? texts.noPace}
           after={pace(after.distanceMeters, seconds, units) ?? texts.noPace}
         />
       </dl>
@@ -181,6 +186,18 @@ export function Result({
         series={report.series}
         zones={report.zones}
         texts={texts.map}
+        onDraw={
+          onDrawStretch === undefined
+            ? undefined
+            : async (line) => {
+                const answered = await onDrawStretch(line);
+                // A refusal in the service's own words, like the fragment question; no code is a
+                // request that never arrived, and the map has a sentence of its own for that.
+                return answered.ok || answered.code === undefined
+                  ? { ok: answered.ok }
+                  : { ok: false, message: codeText(codes, answered.code).text };
+              }
+        }
       />
 
       <div className="mt-section flex flex-col items-start gap-gutter md:flex-row md:items-center">

@@ -178,3 +178,19 @@ Append-only: add entries, never rewrite existing ones.
 - source_spec: `docs/implementation-artifacts/spec-3-2-route-map.md`
   summary: A basemap with a dark style and no key would let the map drop the CSS inversion of OpenStreetMap tiles.
   evidence: CARTO's keyless dark tiles serve an "API KEY REQUIRED" watermark (seen in a browser, 2026-11-27), so 3.2 darkens OpenStreetMap with a CSS filter. The inversion leaves faint seams at tile borders and shifts colours; a keyed dark source or a self-hosted style would fix both, at the price of configuration the one-command setup does not have today.
+
+- source_spec: none
+  summary: A "No track" entry: repair an original without any reference file, drawing the whole missing stretch on the map.
+  evidence: Split from Story 5.4 on 2026-11-28 at Ілля's request ("a button like 'missing', so no GPX has to be uploaded"). Story 5.4 takes the entry through a result made from a raw track; repairing with no track at all needs an API path that accepts an original alone and an estimated zone with no geometry until the drawing supplies it, which is wider than the drawing itself.
+
+- source_spec: none
+  summary: Drop outliers on the map, and edit the track there, beyond appending a drawn stretch.
+  evidence: Split from Story 5.4 on 2026-11-28 (Ілля: "then we throw out the outliers on the map and let the track be edited on the map"). Needs a way to select or flag points of the original or the track and a contract for what the server does with the removal; AD-14 forbids deriving it in the UI.
+
+- source_spec: none
+  summary: Snap a drawn route to roads, with a switch to turn the snapping off.
+  evidence: Ілля on 2026-11-28: snapping is wanted but must be switchable, and Story 5.4 ships without it. The PRD (section 6.2) and the spine put road snapping at v1.2 because it needs an external routing service, which sends the athlete's coordinates off the service (AD-9) and strains the stateless promise; decide the provider and the privacy position before building it.
+
+- source_spec: `spec-5-4-draw-stretch.md`
+  summary: Choose which estimated stretch to draw when a run has several.
+  evidence: `stretchEnds` takes the first estimated zone that follows a measured one. The real Chabany pair has three estimated zones (21-179 s, 1698-1903 s, 1930-2009 s), so only the first can be redrawn from the map, and after a drawing it stays estimated and first. Needs a way to pick a stretch (click it, or a list), and a decision on whether one drawing request can carry several fragments, which the server's single-fragment attachment (AD-27) does not do today.
