@@ -228,6 +228,7 @@ public static class RepairEndpoint
                     ToSeconds: redrawn.ToSeconds,
                     DistanceMeters: redrawn.DistanceMeters)
                 : null,
+            StartToTrackMeters: report.StartToTrackMeters,
             Series: SeriesOf(result),
             // The severity beside every code, so the interface decides the download gate from the
             // answer it was given rather than from a table of its own (AD-22).

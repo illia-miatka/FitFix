@@ -150,6 +150,13 @@ public sealed record RepairReport
     /// <inheritdoc cref="ElevationGainMeters"/>
     public required double? ElevationLossMeters { get; init; }
 
+    /// <summary>
+    /// How far the Original's first position lay from the nearest point of the reference track, m,
+    /// when <c>TRACK_FAR_FROM_ORIGINAL</c> is among the <see cref="Warnings"/>; null otherwise. The
+    /// one number a shell needs to say how wrong the track probably is (FR-3, AD-16).
+    /// </summary>
+    public required double? StartToTrackMeters { get; init; }
+
     public required IReadOnlyList<string> Warnings { get; init; }
 }
 

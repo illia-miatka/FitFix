@@ -98,7 +98,7 @@ public class ContractShapeTests
     }
 
     [Fact]
-    public void The_repair_body_carries_its_eight_members_and_names_every_enum_as_a_string()
+    public void The_repair_body_carries_its_nine_members_and_names_every_enum_as_a_string()
     {
         var repair = new RepairResponse(
             Before: new OriginalSummaryResponse(
@@ -126,6 +126,7 @@ public class ContractShapeTests
             Track: new TrackLengthsResponse(LengthMeters: 6537.2, UsedLengthMeters: 6537.2),
             Zones: [new TrustZoneResponse(ZoneKindName.Measured, 0, 1300)],
             Redrawn: new RedrawnSpanResponse(FromSeconds: 1612, ToSeconds: 1976, DistanceMeters: 1234),
+            StartToTrackMeters: 1340,
             Series: new RepairSeriesResponse(
                 SecondsFromStart: [0, 1],
                 Original: new OriginalSeriesResponse(
@@ -150,7 +151,7 @@ public class ContractShapeTests
         var root = document.RootElement;
 
         Assert.Equal(
-            ["after", "before", "fitBase64", "redrawn", "series", "track", "warnings", "zones"],
+            ["after", "before", "fitBase64", "redrawn", "series", "startToTrackMeters", "track", "warnings", "zones"],
             root.EnumerateObject().Select(member => member.Name).Order());
 
         // The redrawn stretch is three base quantities and no sentence (AD-14, AD-27).
@@ -211,9 +212,14 @@ public class ContractShapeTests
         // (AD-5's rule for a series, and the same claim about a value).
         using var whole = JsonDocument.Parse(JsonSerializer.Serialize(repair with { Redrawn = null }, Web));
         Assert.Equal(
-            ["after", "before", "fitBase64", "redrawn", "series", "track", "warnings", "zones"],
+            ["after", "before", "fitBase64", "redrawn", "series", "startToTrackMeters", "track", "warnings", "zones"],
             whole.RootElement.EnumerateObject().Select(member => member.Name).Order());
         Assert.Equal(JsonValueKind.Null, whole.RootElement.GetProperty("redrawn").ValueKind);
+
+        // Metres of a measurement, no sentence; null when nothing was far (AD-14).
+        Assert.Equal(1340, root.GetProperty("startToTrackMeters").GetDouble());
+        using var near = JsonDocument.Parse(JsonSerializer.Serialize(repair with { StartToTrackMeters = null }, Web));
+        Assert.Equal(JsonValueKind.Null, near.RootElement.GetProperty("startToTrackMeters").ValueKind);
     }
 
     [Fact]

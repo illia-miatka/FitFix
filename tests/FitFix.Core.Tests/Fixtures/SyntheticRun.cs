@@ -224,6 +224,31 @@ public sealed class SyntheticRun
     }
 
     /// <summary>
+    /// The same run and the same records with the reference track moved <paramref name="meters"/>
+    /// east — a neighbour's route, or last week's loop drawn a street over. Nothing of the track
+    /// but its place changes, so what the repair says about the miss is the only difference from
+    /// the untouched fixture.
+    /// </summary>
+    public SyntheticRun WithTrackShiftedEast(double meters)
+    {
+        var shifted = TrackPoints
+            .Select(point => new TrackPoint(
+                new GeoPoint(
+                    point.Position.Latitude,
+                    point.Position.Longitude
+                        + meters / (Geo.MetersPerDegreeLatitude * Math.Cos(point.Position.Latitude * Math.PI / 180.0))),
+                point.Altitude))
+            .ToArray();
+
+        return new SyntheticRun
+        {
+            TrackPoints = shifted,
+            TrueRouteLength = TrueRouteLength,
+            Original = Original
+        };
+    }
+
+    /// <summary>
     /// The same run with no position written before <paramref name="second"/> — the watch that spends
     /// the first kilometres of a run looking for the sky, and finds it only once the athlete is well
     /// into the route. Everything else about those records, their sensors and their altitude

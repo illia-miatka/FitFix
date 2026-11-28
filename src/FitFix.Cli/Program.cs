@@ -240,7 +240,10 @@ static string BlockingWarningText(string code, RepairReport report) => code swit
                     + "поганий із самого початку, повторіть команду з --trust-track."
                 : $"За вашим --trust-track узято повну довжину — {Km(report.UsedTrackLengthMeters)} км."),
     DiagnosticCodes.TrackFarFromOriginal =>
-        "трек починається далеко від першої GPS-точки Оригіналу — можливо, це маршрут іншої активності.",
+        report.StartToTrackMeters is { } far
+            ? $"трек проходить за {Km(far)} км від місця, де почалося тренування, і жодна точка "
+                + "не збіглася з ним — можливо, це маршрут іншої активності."
+            : "жодна точка Оригіналу не збіглася з треком — можливо, це маршрут іншої активності.",
     // The stretch, and the way to say "yes, that one" — the exit code alone cannot tell a fragment
     // the athlete meant from a file they grabbed by mistake (AD-27).
     DiagnosticCodes.TrackIsAFragment when report.RedrawnSpan is { } span =>

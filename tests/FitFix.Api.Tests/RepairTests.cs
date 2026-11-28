@@ -452,6 +452,37 @@ public class RepairTests : IDisposable
     }
 
     [Fact]
+    public async Task A_track_that_attached_nowhere_says_how_far_from_the_start_it_passes()
+    {
+        // The number the result screen's confirmation shows. It is the core's own measurement
+        // carried through the endpoint, so the screen can never state one the file does not
+        // (AD-16), and the severity beside the code is what withholds the file (AD-22).
+        var run = SyntheticRun.Create().WithTrackShiftedEast(1_300);
+        var (original, track) = Files(run);
+        var expected = Repair(original, track).Report.StartToTrackMeters;
+
+        using var response = await RepairAsync(original, track);
+        var body = await ReadJsonAsync(response);
+
+        Assert.NotNull(expected);
+        Assert.True(expected > 20);
+        Assert.Equal(expected!.Value, body.GetProperty("startToTrackMeters").GetDouble(), 0.001);
+        Assert.Equal(SeverityName.Blocking, Warnings(body)[DiagnosticCodes.TrackFarFromOriginal]);
+    }
+
+    [Fact]
+    public async Task A_track_that_attached_reports_no_distance_from_the_start()
+    {
+        var (original, track) = Files(SyntheticRun.Create());
+
+        using var response = await RepairAsync(original, track);
+        var body = await ReadJsonAsync(response);
+
+        Assert.Equal(JsonValueKind.Null, body.GetProperty("startToTrackMeters").ValueKind);
+        Assert.DoesNotContain(DiagnosticCodes.TrackFarFromOriginal, Warnings(body).Keys);
+    }
+
+    [Fact]
     public async Task No_derived_value_travels_in_the_answer()
     {
         // The core computes a pace and a measured fraction for the CLI and the DTO still may not

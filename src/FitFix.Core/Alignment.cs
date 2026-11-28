@@ -112,6 +112,16 @@ public sealed class Alignment
     /// <summary>Час, на якому детектор вирішив, що GPS Оригіналу завис; null — не виявлено.</summary>
     public double? GpsStallAtSeconds { get; init; }
 
+    /// <summary>
+    /// How far the Original's first position lay from the nearest point of the whole reference
+    /// track, m — the distance <c>TRACK_FAR_FROM_ORIGINAL</c> is raised about. Deliberately not the
+    /// search's closest approach: a loop that crosses the athlete's route anywhere comes within a
+    /// metre of some position while nothing attaches, and "0.8 m" beside "far" would contradict the
+    /// caveat. Set only together with that warning: a number beside no warning would invite a shell
+    /// to invent a caveat of its own (FR-3, AD-16).
+    /// </summary>
+    public double? StartToTrackMeters { get; init; }
+
     /// <summary>Warning codes, every one declared in <c>DiagnosticCodes</c> (AD-18).</summary>
     public required IReadOnlyList<string> Warnings { get; init; }
 }

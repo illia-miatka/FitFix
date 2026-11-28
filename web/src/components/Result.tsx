@@ -42,6 +42,7 @@ export interface ResultTexts {
   readonly startAgain: string;
   readonly strava: string;
   readonly longTrack: LongTrackTexts;
+  readonly farTrack: FarTrackTexts;
   readonly map: MapTexts;
   readonly chart: ChartTexts;
 }
@@ -56,6 +57,16 @@ export interface LongTrackTexts {
   readonly trustTrack: string;
   readonly choosing: string;
   readonly failed: string;
+}
+
+/** `uk.result.farTrack` — the confirmation a track far from the activity's start asks for. */
+export interface FarTrackTexts {
+  readonly distance: string;
+  readonly unknownDistance: string;
+  readonly hint: string;
+  readonly withheld: string;
+  readonly confirm: string;
+  readonly confirmed: string;
 }
 
 /** `uk.units` — what a distance and a pace are written in. */
@@ -101,15 +112,18 @@ export interface ResultProps {
 const fixedSuffix = '_fixed.fit';
 
 /**
- * `DiagnosticCodes.TrackIsAFragment` — the one blocking code this screen withholds the file for
+ * `DiagnosticCodes.TrackIsAFragment` — the first blocking code this screen withholds the file for
  * (AD-22, AD-27). A code and not a sentence, so it is the component's business rather than the
- * dictionary's (AD-18); the gate is scoped to this code on purpose, because the other blocking
- * warnings have confirmations of their own that no story has shipped yet.
+ * dictionary's (AD-18); each blocking code has a gate of its own, because each asks a different
+ * question and a code with no question to ask must not hide the file behind a button nobody has.
  */
 const fragmentCode = 'TRACK_IS_A_FRAGMENT';
 
 /** `DiagnosticCodes.TrackLongerThanActivity` — the second code with a decision of its own (3.5). */
 const longerCode = 'TRACK_LONGER_THAN_ACTIVITY';
+
+/** `DiagnosticCodes.TrackFarFromOriginal` — the third code with a question of its own. */
+const farCode = 'TRACK_FAR_FROM_ORIGINAL';
 
 /**
  * The result state of EXPERIENCE.md: the warnings as a callout above the numbers, the three
@@ -149,7 +163,13 @@ export function Result({
   // An over-long track keeps its warning after the athlete has chosen — trusting the track does not
   // make it plausible (AD-17) — so this gate reads the recorded answer, not the warning's absence.
   const longTrack = blockedBy(longerCode);
-  const gated = fragmentGated || (longTrack && lengthDecision === null);
+  // The far track's confirmation changes nothing about the file — the very same bytes either way —
+  // so it asks the service nothing and lives here, forgotten with the screen when the next repair
+  // replaces it (AD-3, AD-22).
+  const [farConfirmed, setFarConfirmed] = useState(false);
+  const farTrack = blockedBy(farCode);
+  const gated =
+    fragmentGated || (longTrack && lengthDecision === null) || (farTrack && !farConfirmed);
 
   // The repair keeps the Original's clock, so these seconds are the "before" ones too — which is
   // why they are also the denominator of both paces, and why the time row states the same value
@@ -164,8 +184,7 @@ export function Result({
       {report.warnings.length > 0 && (
         // Above the numbers, not beside them (EXPERIENCE.md): the one about an over-long track is
         // the difference between a true pace and a flattering one, so it is read first. Of the
-        // blocking ones only the fragment gates the file (see `fragmentCode`); the rest are shown
-        // beside an offered download, because their confirmations have no screen yet (AD-22).
+        // blocking ones, every one withholds the file until its own question is answered (AD-22).
         <ul aria-label={texts.warnings} className="flex flex-col gap-2">
           {report.warnings.map((warning) => (
             <Callout key={warning.code} warning={warning} texts={texts} codes={codes} />
@@ -197,6 +216,16 @@ export function Result({
           <RedrawnStretch span={report.redrawn} texts={texts} units={units} />
           <p className="mt-gutter text-sm text-text-muted">{texts.keptOwn}</p>
         </div>
+      )}
+
+      {farTrack && (
+        <FarTrackGate
+          meters={report.startToTrackMeters ?? null}
+          confirmed={farConfirmed}
+          texts={texts}
+          units={units}
+          onConfirm={() => setFarConfirmed(true)}
+        />
       )}
 
       {longTrack && (
@@ -546,6 +575,59 @@ function LongTrackGate({
 
       <div role="status" className="empty:hidden">
         {failure !== null && <p className="mt-2 text-sm text-danger">{failure}</p>}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The question a track that attached nowhere asks: how far from the start it passes, and one
+ * button that says "this is my track". A pressed state in words, not only in colour; and the
+ * explanation of why the file waits stays until it is answered (AD-22).
+ */
+function FarTrackGate({
+  meters,
+  confirmed,
+  texts,
+  units,
+  onConfirm,
+}: {
+  readonly meters: number | null;
+  readonly confirmed: boolean;
+  readonly texts: ResultTexts;
+  readonly units: UnitTexts;
+  readonly onConfirm: () => void;
+}) {
+  const words = texts.farTrack;
+
+  return (
+    <div className="mt-gutter rounded-md border border-border bg-surface p-gutter">
+      {meters === null ? (
+        <p className="text-sm text-text-muted">{words.unknownDistance}</p>
+      ) : (
+        <dl>
+          <dt className="text-sm text-text-muted">{words.distance}</dt>
+          <dd className="type-metric mt-2 text-estimated">{kilometres(meters, units)}</dd>
+        </dl>
+      )}
+
+      <p className="mt-gutter max-w-[70ch] text-sm text-text-muted">{words.hint}</p>
+      {!confirmed && <p className="mt-2 text-sm text-text-muted">{words.withheld}</p>}
+
+      <div className="mt-2">
+        <button
+          type="button"
+          aria-pressed={confirmed}
+          disabled={confirmed}
+          onClick={onConfirm}
+          className={`min-h-11 rounded-pill border px-6 py-3 text-sm transition-colors disabled:cursor-default ${
+            confirmed
+              ? 'border-accent bg-surface-raised text-text'
+              : 'border-border bg-surface text-text-muted hover:text-text'
+          }`}
+        >
+          {confirmed ? words.confirmed : words.confirm}
+        </button>
       </div>
     </div>
   );

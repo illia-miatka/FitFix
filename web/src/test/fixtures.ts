@@ -122,6 +122,15 @@ export function aReport(overrides: Partial<RepairReport> = {}): RepairReport {
 }
 
 /**
+ * A repair the service made of a track that attached nowhere but lay within its 2 km line: the
+ * blocking warning, and how far from the start the track passes (AD-22).
+ */
+export const aFarTrack: Partial<RepairReport> = {
+  warnings: [{ code: 'TRACK_FAR_FROM_ORIGINAL', severity: 'blocking' }],
+  startToTrackMeters: 1340,
+};
+
+/**
  * The same repair of a track the service recognised as a stretch of the route: the blocking
  * warning and the span it names (Story 5.2). Pass it to `aReport` — the confirmed answer is the
  * plain report, the same numbers with nothing left to ask.

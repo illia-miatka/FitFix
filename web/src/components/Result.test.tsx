@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Result } from './Result';
 import type { RepairReport, TrackLengthMode } from '../api/repair';
 import type { Point } from '../drawing';
-import { aConfirmedFragment, aFragment, aReport, aRoute } from '../test/fixtures';
+import { aConfirmedFragment, aFarTrack, aFragment, aReport, aRoute } from '../test/fixtures';
 import { uk } from '../i18n/uk';
 
 /**
@@ -307,9 +307,12 @@ describe('the warnings', () => {
 
   it('does not withhold the file behind a blocking warning that has no screen of its own', () => {
     // AD-22 gates the download on a blocking severity, but only for the questions this screen can
-    // ask: the fragment and the over-long track. Another code would withhold the file behind a
-    // question nobody can answer.
-    show(aReport({ warnings: [{ code: 'TRACK_FAR_FROM_ORIGINAL', severity: 'blocking' }] }));
+    // ask. A code it has no question for would withhold the file behind a button nobody has.
+    show(
+      aReport({
+        warnings: [{ code: 'A_CODE_FROM_THE_FUTURE', severity: 'blocking' }],
+      }),
+    );
 
     expect(screen.getByRole('button', { name: uk.result.download })).toBeEnabled();
     expect(
@@ -774,5 +777,88 @@ describe('the long-track decision (Story 3.5)', () => {
     expect(
       screen.queryByRole('button', { name: uk.result.longTrack.trustTrack }),
     ).not.toBeInTheDocument();
+  });
+});
+
+describe('the far-track confirmation', () => {
+  const confirm = () => screen.getByRole('button', { name: uk.result.farTrack.confirm });
+
+  it('states how far from the start the track passes and withholds the file', () => {
+    show(aReport(aFarTrack));
+
+    // 1340 m is 1,34 km, worked out here rather than asked of the formatter.
+    expect(screen.getByText(uk.result.farTrack.distance).parentElement).toHaveTextContent(
+      `1,34 ${uk.units.kilometres}`,
+    );
+    expect(screen.getByText(uk.result.farTrack.withheld)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: uk.result.download })).not.toBeInTheDocument();
+    expect(confirm()).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('offers the file after the confirmation, keeps the warning, and says it was confirmed in words', async () => {
+    show(aReport(aFarTrack));
+
+    await userEvent.click(confirm());
+
+    expect(screen.getByRole('button', { name: uk.result.download })).toBeEnabled();
+    expect(screen.queryByText(uk.result.farTrack.withheld)).not.toBeInTheDocument();
+    const pressed = screen.getByRole('button', {
+      name: uk.result.farTrack.confirmed,
+    });
+    expect(pressed).toHaveAttribute('aria-pressed', 'true');
+    // The callout stays: the caveat does not disappear because it was acknowledged.
+    expect(screen.getByText(uk.codes.TRACK_FAR_FROM_ORIGINAL)).toBeInTheDocument();
+  });
+
+  it('still asks when the service sent the warning without a distance', () => {
+    show(aReport({ ...aFarTrack, startToTrackMeters: null }));
+
+    expect(screen.getByText(uk.result.farTrack.unknownDistance)).toBeInTheDocument();
+    expect(confirm()).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: uk.result.download })).not.toBeInTheDocument();
+  });
+
+  it('reads an older service, which sends no field at all, the same way', () => {
+    const { startToTrackMeters: _unsent, ...older } = aReport(aFarTrack);
+
+    show(older as RepairReport);
+
+    expect(screen.getByText(uk.result.farTrack.unknownDistance)).toBeInTheDocument();
+  });
+
+  it('asks nothing of a repair that attached', () => {
+    show(aReport());
+
+    expect(screen.queryByText(uk.result.farTrack.distance)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: uk.result.download })).toBeEnabled();
+  });
+
+  it('waits for the long-track answer as well when both warnings stand', async () => {
+    show(
+      aReport({
+        startToTrackMeters: 1340,
+        warnings: [
+          { code: 'TRACK_FAR_FROM_ORIGINAL', severity: 'blocking' },
+          { code: 'TRACK_LONGER_THAN_ACTIVITY', severity: 'blocking' },
+        ],
+      }),
+      () => {},
+      undefined,
+      undefined,
+      undefined,
+      'plausible',
+    );
+
+    expect(screen.queryByRole('button', { name: uk.result.download })).not.toBeInTheDocument();
+
+    await userEvent.click(confirm());
+
+    expect(screen.getByRole('button', { name: uk.result.download })).toBeEnabled();
+  });
+
+  it('has a touch target of 44 px', () => {
+    show(aReport(aFarTrack));
+
+    expect(confirm().className).toContain('min-h-11');
   });
 });

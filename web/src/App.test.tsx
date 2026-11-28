@@ -7,6 +7,7 @@ import { uk } from './i18n/uk';
 import {
   aConfirmedFragment,
   aFragment,
+  aFarTrack,
   aReport,
   anOriginal,
   aRoute,
@@ -494,6 +495,40 @@ describe('confirming a fragment', () => {
     expect(screen.getByText(uk.codes.TRACK_IS_A_FRAGMENT)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: uk.result.download })).not.toBeInTheDocument();
     expect(repairCalls(fetched)).toBe(2);
+  });
+});
+
+describe('confirming a track far from the start', () => {
+  const repair = () => screen.getByRole('button', { name: uk.repair.action });
+  const download = () => screen.queryByRole('button', { name: uk.result.download });
+
+  async function repairAPair() {
+    await choose(uk.dropzones.original.pick, fitFile('Run_4k_Chabany.fit'));
+    await choose(uk.dropzones.track.pick, fitFile('route.gpx'));
+    await screen.findByText(uk.inspection.length);
+    await userEvent.click(repair());
+    await screen.findByRole('heading', { name: uk.result.title });
+  }
+
+  it('asks the service nothing, and asks again for the next pair', async () => {
+    const fetched = serviceDescribesEverything(() => answers(aReport(aFarTrack)));
+    render(<App />);
+    await repairAPair();
+    expect(download()).not.toBeInTheDocument();
+    const requests = () => fetched.mock.calls.filter(([url]) => url === '/api/repair').length;
+
+    await userEvent.click(screen.getByRole('button', { name: uk.result.farTrack.confirm }));
+
+    expect(download()).toBeEnabled();
+    // The very same bytes either way: nothing to repeat (AD-3).
+    expect(requests()).toBe(1);
+
+    await userEvent.click(screen.getByRole('button', { name: uk.result.startAgain }));
+    await repairAPair();
+
+    // A confirmation answers for one pair of files, not for the next (AD-22).
+    expect(download()).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: uk.result.farTrack.confirm })).toBeEnabled();
   });
 });
 

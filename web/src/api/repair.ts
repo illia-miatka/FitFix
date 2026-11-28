@@ -157,6 +157,12 @@ export interface RepairReport {
   readonly zones: readonly TrustZone[];
   /** The stretch a fragment redrew, or null when the whole route was used (AD-27). */
   readonly redrawn: RedrawnSpan | null;
+  /**
+   * How far the activity's first position lay from the nearest point of the track, in metres, when
+   * `TRACK_FAR_FROM_ORIGINAL` is among the warnings. Null otherwise; absent from an older service,
+   * which reads the same (AD-14).
+   */
+  readonly startToTrackMeters?: number | null;
   readonly series: RepairSeries;
   readonly warnings: readonly RepairWarning[];
   /** The repaired FIT, base64-encoded. */
