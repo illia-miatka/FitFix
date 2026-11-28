@@ -5,7 +5,7 @@
 # bmad-build оновлює цей файл автоматично, коли бере сторі в роботу.
 
 generated: 11-19-2026 23:03
-last_updated: 11-28-2026 21:00
+last_updated: 11-28-2026 22:00
 project: FitFix
 project_key: NOKEY
 tracking_system: file-system
@@ -44,7 +44,7 @@ development_status:
   3-3-побачити-де-gps-брехав: done
   3-4-знайти-на-карті-те-що-бачу-на-графіку: done
   3-5-зрозуміти-попередження-і-вирішити-щодо-довгого-треку: done
-  3-6-подивитись-результат-із-телефона: review
+  3-6-подивитись-результат-із-телефона: done
   epic-3-retrospective: optional
 
   epic-5: in-progress
