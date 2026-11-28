@@ -94,6 +94,12 @@ describe('no component names a raw colour', () => {
     expect(others.length).toBeGreaterThan(4);
   });
 
+  it('darkens the light OpenStreetMap basemap, since no DOM test can see the pixels', () => {
+    // The tile pane is its own layer, so the lines and pins above it keep their token colours.
+    // Without the filter the map is a white slab in a dark page.
+    expect(theme).toMatch(/\.leaflet-tile-pane\s*\{[^}]*\bfilter:\s*invert\(1\)/);
+  });
+
   it.each(others.map((path) => relative(srcRoot, path)))('%s holds no hex or rgb() colour', (name) => {
     const source = readFileSync(join(srcRoot, name), 'utf8');
     const literals = [

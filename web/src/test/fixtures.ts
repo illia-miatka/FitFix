@@ -141,3 +141,42 @@ export const aConfirmedFragment = {
   redrawn: aFragment.redrawn,
   warnings: [],
 } satisfies Partial<RepairReport>;
+
+/**
+ * A route long enough for a map to have something to say: ten records, the device's position
+ * measured until record 5 and then lost — a run of four points, a hole, a run of two, a hole and
+ * a lone point at the end — against a repaired track that has a position everywhere. Pass its
+ * `series` and `zones` to `aReport`.
+ */
+export function aRoute() {
+  const at = (i: number) => 50.33 + i * 0.001;
+  const lost = new Set([4, 5, 8]);
+  const original = (value: (i: number) => number) =>
+    Array.from({ length: 10 }, (_, i) => (lost.has(i) ? null : value(i)));
+  const everywhere = (value: (i: number) => number) => Array.from({ length: 10 }, (_, i) => value(i));
+  const series: RepairReport['series'] = {
+    secondsFromStart: everywhere((i) => i),
+    original: {
+      latitude: original(at),
+      longitude: original((i) => 30.38 + i * 0.001),
+      distanceMeters: original((i) => i * 3),
+      speedMetersPerSecond: original(() => 3),
+    },
+    repaired: {
+      latitude: everywhere(at),
+      longitude: everywhere((i) => 30.38 + i * 0.001),
+      altitudeMeters: everywhere(() => 182),
+      distanceMeters: everywhere((i) => i * 3),
+      speedMetersPerSecond: everywhere(() => 3),
+      heartRate: everywhere(() => 150),
+      power: everywhere(() => 0),
+      cadence: everywhere(() => 85),
+      temperatureCelsius: everywhere(() => 4),
+    },
+  };
+  const zones: RepairReport['zones'] = [
+    { kind: 'measured', fromSeconds: 0, toSeconds: 5 },
+    { kind: 'estimated', fromSeconds: 5, toSeconds: 9 },
+  ];
+  return { series, zones } satisfies Partial<RepairReport>;
+}

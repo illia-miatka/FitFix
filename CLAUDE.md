@@ -71,7 +71,7 @@
 - Стек (вибрано 19.11.2026, перевірено спайком):
   - Backend: **.NET 10** (LTS; локально SDK 10.0.302), ASP.NET Core Minimal API (`src/FitFix.Api`, сторі 2.1), **`Garmin.FIT.Sdk` 21.222.0** — офіційний Garmin FIT SDK, читання й запис. GPX/TCX — `System.Xml.Linq`. Формат треку визначається за вмістом файлу.
   - Проєкти: `src/FitFix.Core` (чисте ядро, без вебу), `src/FitFix.Cli` (`fitfix repair ORIGINAL TRACK -o OUT`), `src/FitFix.Api` (Minimal API: `/health` і контракт відмов), `tests/FitFix.Core.Tests` і `tests/FitFix.Api.Tests` (xunit; API-тести ходять справжнім HTTP по Kestrel), `web/` (фронтенд, сторі 2.4).
-  - Frontend: React 19, Vite 7, TypeScript, Tailwind 4 (`@tailwindcss/vite`), шрифти `@fontsource/unbounded` + `@fontsource/manrope`; тести — Vitest + Testing Library у jsdom. Далі в епіку 3: react-leaflet 5 + Leaflet 1.9 (темна підкладка CARTO), Recharts 3, lucide-react. Локально Node 26, npm 11.
+  - Frontend: React 19, Vite 7, TypeScript, Tailwind 4 (`@tailwindcss/vite`), шрифти `@fontsource/unbounded` + `@fontsource/manrope`; тести — Vitest + Testing Library у jsdom. Далі в епіку 3: react-leaflet 5 + Leaflet 1.9 (підкладка OpenStreetMap, затемнена в CSS; CARTO без ключа віддає водяний знак), Recharts 3, lucide-react. Локально Node 26, npm 11.
   - Один Docker-образ: збірка фронту → статика роздається ASP.NET Core. `docker compose up`. Публічного хостингу в MVP немає.
   - API (чернетка): `POST /api/inspect` (метадані одного файлу), `POST /api/repair` (multipart: original, track → JSON-звіт + FIT у base64).
 - Дизайн: темний графіт, один лаймовий акцент `#C8F135` для виправленого треку, пунктир `#7C8594` для оригіналу, `#F5B83D` для розрахованої зони. Не використовувати помаранчевий Strava-брендинг.

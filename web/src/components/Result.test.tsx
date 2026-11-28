@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { Result } from './Result';
 import type { RepairReport } from '../api/repair';
-import { aConfirmedFragment, aFragment, aReport } from '../test/fixtures';
+import { aConfirmedFragment, aFragment, aReport, aRoute } from '../test/fixtures';
 import { uk } from '../i18n/uk';
 
 /**
@@ -444,5 +444,18 @@ describe('starting again', () => {
     await userEvent.click(screen.getByRole('button', { name: uk.result.startAgain }));
 
     expect(again).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('the map', () => {
+  it('sits between the numbers and the actions, with the repaired line drawn', () => {
+    const { container } = show(aReport(aRoute()));
+
+    const map = screen.getByRole('region', { name: uk.result.map.label });
+    const numbers = metric(uk.result.distance);
+    const download = screen.getByRole('button', { name: uk.result.download });
+    expect(numbers.compareDocumentPosition(map) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(map.compareDocumentPosition(download) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(container.querySelectorAll('path.route-repaired')).toHaveLength(1);
   });
 });
