@@ -180,6 +180,13 @@ public static class DiagnosticCodes
     public const string MediaTypeNotSupported = "MEDIA_TYPE_NOT_SUPPORTED";
 
     /// <summary>
+    /// The service gave up waiting for its own answer (HTTP 504). Its own code rather than
+    /// <see cref="InternalError"/>: nothing broke, and "it took too long" is advice a second
+    /// attempt can act on, where "something went wrong on our side" is not.
+    /// </summary>
+    public const string RequestTimedOut = "REQUEST_TIMED_OUT";
+
+    /// <summary>
     /// The client went away before the answer was written. Nothing can be sent any more, so
     /// this code exists for the log line rather than for a response body.
     /// </summary>
@@ -266,6 +273,7 @@ public static class DiagnosticCodes
         [MethodNotAllowed] = DiagnosticSeverity.Blocking,
         [TooManyRequests] = DiagnosticSeverity.Blocking,
         [MediaTypeNotSupported] = DiagnosticSeverity.Blocking,
+        [RequestTimedOut] = DiagnosticSeverity.Blocking,
         [ClientDisconnected] = DiagnosticSeverity.Blocking,
         [InspectRoleInvalid] = DiagnosticSeverity.Blocking,
         [FileMissing] = DiagnosticSeverity.Blocking,

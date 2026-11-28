@@ -42,5 +42,9 @@ services:
       # proxy's address or network, or to "any" when no other peer can reach the container.
       # FITFIX_TRUSTED_PROXIES: "any"
 
+      # How long the service waits for its own answer. A repair gets its own, longer one.
+      # FITFIX_TIMEOUT_SECONDS: "30"
+      # FITFIX_TIMEOUT_REPAIR_SECONDS: "120"
+
     # The healthcheck is the image's own: it knows its port and carries the wget to use it,
     # so there is nothing to repeat here.
