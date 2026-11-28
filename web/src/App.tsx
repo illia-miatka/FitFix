@@ -1,7 +1,7 @@
 import { useCallback, useId, useRef, useState } from 'react';
 
 import { repair as askForRepair } from './api/repair';
-import type { RepairReport, TrackCoverageMode } from './api/repair';
+import type { RepairReport, TrackCoverageMode, TrackLengthMode } from './api/repair';
 import { Dropzone } from './components/Dropzone';
 import { HowItWorks } from './components/HowItWorks';
 import { Notice } from './components/Notice';
@@ -31,6 +31,17 @@ export function App() {
   const [state, setState] = useState<RepairState>({ status: 'idle' });
   const waitingHintId = useId();
 
+  // The two answers the athlete has given about this pair (AD-17, AD-27). Nothing is stored, so a
+  // later answer is the same request with every earlier one repeated: a ref for the requests,
+  // because the memoised handlers below must not read a stale render, and the state beside it for
+  // the screen, which has to show which length was chosen.
+  const [lengthMode, setLengthMode] = useState<TrackLengthMode | null>(null);
+  const answered = useRef<{ length?: TrackLengthMode; coverage?: TrackCoverageMode }>({});
+  const forgetAnswers = useCallback(() => {
+    answered.current = {};
+    setLengthMode(null);
+  }, []);
+
   // The gate against a second request, and not the same thing as the disabled attribute: that one
   // only takes effect on the next render, and two clicks can land inside one. Repairing the same
   // two files twice costs the budget of the whole epic (three seconds a request) and produces a
@@ -44,12 +55,13 @@ export function App() {
     if (original === null || track === null || running.current) return;
 
     running.current = true;
+    forgetAnswers();
     setState({ status: 'working' });
 
     // Neither mode: the conservative length is the only one a request that has asked nobody
     // anything may end on (AD-17), and the service's own answer about the track's coverage is the
-    // only one it may act on unasked (AD-27). The length choice is Story 1.8's; the coverage one is
-    // `confirmFragment` below, and both are the same request again with one field more.
+    // only one it may act on unasked (AD-27). The length choice is `chooseLength` below, the coverage one
+    // `confirmFragment`, and both are the same request again with one field more.
     const outcome = await askForRepair(original, track);
     running.current = false;
 
@@ -103,10 +115,11 @@ export function App() {
     if (original === null || chosen === null || running.current) return { ok: false };
 
     running.current = true;
-    const outcome = await askForRepair(original, chosen, undefined, coverage);
+    const outcome = await askForRepair(original, chosen, answered.current.length, coverage);
     running.current = false;
 
     if (outcome.status === 'repaired') {
+      answered.current.coverage = coverage;
       if (replacement !== undefined) setTrack(replacement);
       setState({ status: 'repaired', report: outcome.report, originalName: original.name });
       return { ok: true };
@@ -118,23 +131,63 @@ export function App() {
     return outcome.status === 'refused' ? { ok: false, code: outcome.code } : { ok: false };
   }
 
+  /**
+   * The answer to the over-long track warning (Story 3.5). Keeping the trimmed length is what the
+   * service already did, so it asks nothing; every other change of length is the same two files
+   * again with the length stated and the coverage already given repeated (AD-17, AD-22).
+   */
+  const chooseLength = useCallback(
+    async (mode: TrackLengthMode): Promise<CoverageAnswer> => {
+      if (mode === answered.current.length) return { ok: true };
+      if (mode === 'plausible' && answered.current.length === undefined) {
+        answered.current.length = mode;
+        setLengthMode(mode);
+        return { ok: true };
+      }
+      if (original === null || track === null || running.current) return { ok: false };
+
+      running.current = true;
+      const outcome = await askForRepair(original, track, mode, answered.current.coverage);
+      running.current = false;
+
+      if (outcome.status === 'repaired') {
+        answered.current.length = mode;
+        setLengthMode(mode);
+        setState({ status: 'repaired', report: outcome.report, originalName: original.name });
+        return { ok: true };
+      }
+      return outcome.status === 'refused' ? { ok: false, code: outcome.code } : { ok: false };
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [original, track],
+  );
+
   const startAgain = useCallback(() => {
     setOriginal(null);
     setTrack(null);
+    forgetAnswers();
     setState({ status: 'idle' });
-  }, []);
+  }, [forgetAnswers]);
 
   // A refusal is about the two files that were sent, so it goes the moment one of them changes:
   // left standing, it would read as a verdict on the file just dropped.
-  const takeOriginal = useCallback((file: File | null) => {
-    setOriginal(file);
-    setState(withoutFailure);
-  }, []);
+  const takeOriginal = useCallback(
+    (file: File | null) => {
+      setOriginal(file);
+      forgetAnswers();
+      setState(withoutFailure);
+    },
+    [forgetAnswers],
+  );
 
-  const takeTrack = useCallback((file: File | null) => {
-    setTrack(file);
-    setState(withoutFailure);
-  }, []);
+  const takeTrack = useCallback(
+    (file: File | null) => {
+      setTrack(file);
+      forgetAnswers();
+      setState(withoutFailure);
+    },
+    [forgetAnswers],
+  );
 
   if (state.status === 'repaired') {
     return (
@@ -155,6 +208,8 @@ export function App() {
             onConfirmFragment={confirmFragment}
             onUseWholeRoute={useWholeRoute}
             onDrawStretch={drawStretch}
+            lengthDecision={lengthMode}
+            onChooseLength={chooseLength}
           />
         </div>
       </main>

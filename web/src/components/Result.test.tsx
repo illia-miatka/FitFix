@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { Result } from './Result';
-import type { RepairReport } from '../api/repair';
+import type { RepairReport, TrackLengthMode } from '../api/repair';
 import type { Point } from '../drawing';
 import { aConfirmedFragment, aFragment, aReport, aRoute } from '../test/fixtures';
 import { uk } from '../i18n/uk';
@@ -25,6 +25,8 @@ function show(
   onConfirmFragment: () => Promise<CoverageAnswer> = async () => ({ ok: true }),
   onUseWholeRoute: () => Promise<CoverageAnswer> = async () => ({ ok: true }),
   onDrawStretch?: (line: Point[]) => Promise<CoverageAnswer>,
+  lengthDecision: TrackLengthMode | null = null,
+  onChooseLength: (mode: TrackLengthMode) => Promise<CoverageAnswer> = async () => ({ ok: true }),
 ) {
   return render(
     <Result
@@ -37,6 +39,8 @@ function show(
       onConfirmFragment={onConfirmFragment}
       onUseWholeRoute={onUseWholeRoute}
       onDrawStretch={onDrawStretch}
+      lengthDecision={lengthDecision}
+      onChooseLength={onChooseLength}
     />,
   );
 }
@@ -200,16 +204,37 @@ describe('the warnings', () => {
     expect(screen.queryByRole('list', { name: uk.result.warnings })).not.toBeInTheDocument();
   });
 
-  it('does not withhold the file behind another blocking warning', () => {
-    // AD-22 gates the download on a blocking severity, and the over-long track's confirmation is
-    // Story 1.8's: its screen does not exist, so a gate here would withhold the file behind a
-    // question nobody can answer. Only the fragment is gated in this story.
-    show(aReport({ warnings: [{ code: 'TRACK_LONGER_THAN_ACTIVITY', severity: 'blocking' }] }));
+  it('does not withhold the file behind a blocking warning that has no screen of its own', () => {
+    // AD-22 gates the download on a blocking severity, but only for the questions this screen can
+    // ask: the fragment and the over-long track. Another code would withhold the file behind a
+    // question nobody can answer.
+    show(aReport({ warnings: [{ code: 'TRACK_FAR_FROM_ORIGINAL', severity: 'blocking' }] }));
 
     expect(screen.getByRole('button', { name: uk.result.download })).toBeEnabled();
     expect(
       screen.queryByRole('button', { name: uk.result.confirmFragment }),
     ).not.toBeInTheDocument();
+  });
+
+  it('puts an icon and the severity in words on every callout, and never the code', () => {
+    const { container } = show(
+      aReport({
+        warnings: [
+          { code: 'GPS_STALL_DETECTED', severity: 'info' },
+          { code: 'TRACK_FAR_FROM_ORIGINAL', severity: 'blocking' },
+        ],
+      }),
+    );
+
+    const items = within(screen.getByRole('list', { name: uk.result.warnings })).getAllByRole(
+      'listitem',
+    );
+    expect(items).toHaveLength(2);
+    for (const item of items) expect(item.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
+    expect(items[0]).toHaveTextContent(uk.result.info);
+    expect(items[1]).toHaveTextContent(uk.result.blocking);
+    expect(container).not.toHaveTextContent('GPS_STALL_DETECTED');
+    expect(container).not.toHaveTextContent('TRACK_FAR_FROM_ORIGINAL');
   });
 });
 
@@ -538,5 +563,85 @@ describe('the chart and the map together (Story 3.4)', () => {
 
     surface?.blur();
     await waitFor(() => expect(container.querySelectorAll('path.route-cursor')).toHaveLength(0));
+  });
+});
+
+describe('the long-track decision (Story 3.5)', () => {
+  const longer = aReport({
+    track: { lengthMeters: 7400, usedLengthMeters: 6537.4 },
+    warnings: [{ code: 'TRACK_LONGER_THAN_ACTIVITY', severity: 'blocking' }],
+  });
+  const keep = () => screen.getByRole('button', { name: uk.result.longTrack.keepTrimmed });
+  const trust = () => screen.getByRole('button', { name: uk.result.longTrack.trustTrack });
+
+  it('states both lengths and two options, and withholds the file until one is chosen', () => {
+    show(longer);
+
+    expect(screen.getByText(uk.codes.TRACK_LONGER_THAN_ACTIVITY)).toBeInTheDocument();
+    expect(screen.getByText(uk.result.longTrack.trackLength).parentElement).toHaveTextContent(
+      `7,40 ${uk.units.kilometres}`,
+    );
+    expect(screen.getByText(uk.result.longTrack.usedLength).parentElement).toHaveTextContent(
+      `6,54 ${uk.units.kilometres}`,
+    );
+    expect(keep()).toHaveAttribute('aria-pressed', 'false');
+    expect(trust()).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByText(uk.result.longTrack.withheld)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: uk.result.download })).not.toBeInTheDocument();
+  });
+
+  it('asks the page for the chosen length', async () => {
+    const chosen: TrackLengthMode[] = [];
+    show(longer, undefined, undefined, undefined, undefined, null, async (mode) => {
+      chosen.push(mode);
+      return { ok: true };
+    });
+
+    await userEvent.click(trust());
+    await userEvent.click(keep());
+
+    expect(chosen).toEqual(['full', 'plausible']);
+  });
+
+  it('offers the file once a length is chosen, and the warning stays where it was', () => {
+    for (const decision of ['plausible', 'full'] as const) {
+      const { unmount } = show(longer, undefined, undefined, undefined, undefined, decision);
+
+      expect(screen.getByRole('button', { name: uk.result.download })).toBeEnabled();
+      expect(screen.getByText(uk.codes.TRACK_LONGER_THAN_ACTIVITY)).toBeInTheDocument();
+      expect(screen.queryByText(uk.result.longTrack.withheld)).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: uk.result.longTrack.keepTrimmed })).toHaveAttribute(
+        'aria-pressed',
+        String(decision === 'plausible'),
+      );
+      unmount();
+    }
+  });
+
+  it('says why when the repeat was refused, in the service’s sentence, and keeps the gate', async () => {
+    show(longer, undefined, undefined, undefined, undefined, null, async () => ({
+      ok: false,
+      code: 'FIT_INTEGRITY_FAILED',
+    }));
+
+    await userEvent.click(trust());
+
+    expect(await screen.findByText(uk.codes.FIT_INTEGRITY_FAILED)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: uk.result.download })).not.toBeInTheDocument();
+  });
+
+  it('says it in its own words when the repeat never arrived', async () => {
+    show(longer, undefined, undefined, undefined, undefined, null, async () => ({ ok: false }));
+
+    await userEvent.click(trust());
+
+    expect(await screen.findByText(uk.result.longTrack.failed)).toBeInTheDocument();
+  });
+
+  it('offers nothing about length for a report without the warning', () => {
+    show(aReport());
+    expect(
+      screen.queryByRole('button', { name: uk.result.longTrack.trustTrack }),
+    ).not.toBeInTheDocument();
   });
 });
