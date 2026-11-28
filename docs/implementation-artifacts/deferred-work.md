@@ -214,3 +214,7 @@ Append-only: add entries, never rewrite existing ones.
 - source_spec: `docs/implementation-artifacts/spec-3-6-phone-view.md`
   summary: Bring the empty state's controls (the dropzone clear button at 32 px, and the retry button of a notice if it is still short) to 44×44 px on a phone.
   evidence: Story 3.6 measured and fixed the result screen only; the verification reviewer noticed `Dropzone.tsx` still sizes its clear button at `size-8`. The same 44 px rule would apply to the first screen a runner sees on a phone.
+
+- source_spec: `docs/implementation-artifacts/spec-far-from-original-gate.md`
+  summary: Cover the CLI's `TRACK_FAR_FROM_ORIGINAL` warning text with a test.
+  evidence: `BlockingWarningText` in `src/FitFix.Cli/Program.cs` now names the distance from the start to the track, or falls back to a sentence without one. No CLI test project exists, so swapping the branches or dropping the distance passes every test. Wording only; affects the CLI shell alone.

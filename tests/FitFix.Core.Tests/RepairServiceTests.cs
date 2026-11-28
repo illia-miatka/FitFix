@@ -269,6 +269,36 @@ public class RepairServiceTests
     }
 
     [Fact]
+    public void A_track_near_but_not_on_the_route_warns_and_says_how_far()
+    {
+        // 1.3 km east of where the athlete ran: inside the 2 km line, so the repair goes ahead, and
+        // nowhere near the 20 m that anchors anything, so it says so — with the number (FR-3).
+        var run = SyntheticRun.Create().WithTrackShiftedEast(1_300);
+        var track = run.ReferenceTrack;
+
+        var result = RepairService.Repair(run.Original, track);
+
+        Assert.Contains(DiagnosticCodes.TrackFarFromOriginal, result.Report.Warnings);
+        // The number is the first position's distance to the track, stated once by the core: not
+        // the search's closest approach, which a loop crossing the route would make a metre long.
+        var first = run.Original.Records.First(r => r.Position is not null).Position!.Value;
+        Assert.Equal(track.MinDeviationToWholeTrack(first), result.Report.StartToTrackMeters!.Value, 0.001);
+        Assert.True(result.Report.StartToTrackMeters > SyntheticRun.Options.AnchorToleranceMeters);
+        Assert.Equal(result.Report.StartToTrackMeters, result.Alignment.StartToTrackMeters);
+    }
+
+    [Fact]
+    public void A_track_that_attaches_reports_no_distance()
+    {
+        var run = SyntheticRun.Create();
+
+        var result = RepairService.Repair(run.Original, run.ReferenceTrack);
+
+        Assert.DoesNotContain(DiagnosticCodes.TrackFarFromOriginal, result.Report.Warnings);
+        Assert.Null(result.Report.StartToTrackMeters);
+    }
+
+    [Fact]
     public void Repair_of_a_two_hour_activity_takes_less_than_three_seconds()
     {
         var run = SyntheticRun.Create();

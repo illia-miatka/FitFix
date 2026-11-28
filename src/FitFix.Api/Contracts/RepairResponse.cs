@@ -73,6 +73,12 @@ public static class TrackCoverageModes
 /// The stretch a fragment of the route redrew, or null when the track covered the whole activity
 /// (AD-27).
 /// </param>
+/// <param name="StartToTrackMeters">
+/// How far the activity's first position lay from the nearest point of the reference track, m,
+/// when <c>TRACK_FAR_FROM_ORIGINAL</c> is among the warnings; null otherwise, and absent from an
+/// older service, which a client reads the same way. The one number that says how wrong the track
+/// probably is, taken from the core's own measurement and never recomputed (AD-16).
+/// </param>
 /// <param name="Series">Every per-record series, indexed by the Original's records (AD-5).</param>
 /// <param name="Warnings">
 /// Every warning of the report, each with the severity that decides the download gate (AD-22).
@@ -87,6 +93,7 @@ public sealed record RepairResponse(
     TrackLengthsResponse Track,
     IReadOnlyList<TrustZoneResponse> Zones,
     RedrawnSpanResponse? Redrawn,
+    double? StartToTrackMeters,
     RepairSeriesResponse Series,
     IReadOnlyList<RepairWarningResponse> Warnings,
     string FitBase64);

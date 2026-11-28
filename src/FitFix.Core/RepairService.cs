@@ -271,6 +271,7 @@ public static class RepairService
             LapCount = summary.Laps.Count,
             ElevationGainMeters = total.ElevationGainMeters,
             ElevationLossMeters = total.ElevationLossMeters,
+            StartToTrackMeters = alignment.StartToTrackMeters,
             Warnings = WarningsOf(
                 alignment,
                 discardedPositions,

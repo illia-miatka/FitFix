@@ -69,9 +69,11 @@ public static class Aligner
         var anchors = new List<Anchor> { new(0, 0, 0) };
         var segment = 0;
 
-        // How near the search ever came to attaching, m — what TRACK_FAR_FROM_ORIGINAL is judged
-        // against when nothing attaches at all (FR-3, AD-27), in place of the Original's first
-        // position against the whole track. MaxValue while the search has looked at nothing: an
+        // How near the search ever came to attaching, m — what decides between the refusal
+        // TRACK_ATTACHES_NOWHERE and the warning TRACK_FAR_FROM_ORIGINAL when nothing attaches at
+        // all (FR-3, AD-27). It is not the number the warning reports: a loop crossing the route
+        // can come within a metre and still attach nothing, so the report states the first
+        // position's distance instead (see `farBy`). MaxValue while the search has looked at nothing: an
         // activity whose watch never found a fix offers no attachment to judge, and must not be
         // refused as though it had offered a bad one.
         var closestApproach = double.MaxValue;
@@ -115,6 +117,9 @@ public static class Aligner
         if (closestApproach == double.MaxValue && positioned.Length > 0)
             closestApproach = track.MinDeviationToWholeTrack(positioned[0].Position!.Value);
 
+        // Said beside the warning and nowhere else, so the number and the caveat cannot part (FR-3).
+        double? farBy = null;
+
         // Nothing the Original's own GPS established: the seeded start line is the whole chain.
         if (anchors.Count == 1 && closestApproach < double.MaxValue)
         {
@@ -130,6 +135,7 @@ public static class Aligner
             // Near enough to be this route and still nothing to anchor: the repair proceeds as it
             // always has — the whole track laid over the activity's time — and says so (FR-3).
             warnings.Add(DiagnosticCodes.TrackFarFromOriginal);
+            farBy = track.MinDeviationToWholeTrack(positioned[0].Position!.Value);
         }
 
         // A whole track spans the activity: it opens on the start line above and closes on the
@@ -149,6 +155,7 @@ public static class Aligner
             Zones = Zones(anchors, anchors[^1].TimeSeconds, options),
             MeasuredUntilSeconds = anchors[^1].TimeSeconds,
             MeasuredDistanceMeters = anchors[^1].TrackDistance,
+            StartToTrackMeters = farBy,
             GpsStallAtSeconds = stallAt,
             Warnings = warnings
         };
@@ -242,6 +249,7 @@ public static class Aligner
             Zones = Zones(anchors, elapsedSeconds, options),
             MeasuredUntilSeconds = measured.MeasuredUntilSeconds,
             MeasuredDistanceMeters = measured.MeasuredDistanceMeters,
+            StartToTrackMeters = measured.StartToTrackMeters,
             GpsStallAtSeconds = measured.GpsStallAtSeconds,
             // The first and the last anchor are counted too (FR-4), so the thinness of the chain
             // can only be judged once the finish is on it.
