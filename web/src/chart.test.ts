@@ -81,6 +81,14 @@ describe('chartRows', () => {
     expect(rows.every((row) => row.seconds === row.index)).toBe(true);
   });
 
+  it('carries the repaired distance of each record it draws', () => {
+    const series = seriesOf(7200);
+    const rows = chartRows(series, 'running');
+    expect(
+      rows.every((row) => row.distanceMeters === series.repaired.distanceMeters[row.index]),
+    ).toBe(true);
+  });
+
   it('is a pace in seconds per kilometre for a runner', () => {
     const [row] = chartRows(seriesOf(3, { repaired: () => 4, original: () => 2 }), 'running');
     expect(row?.repaired).toBeCloseTo(250);
@@ -139,6 +147,7 @@ describe('heart rate and the end of a line', () => {
     const rows: ChartRow[] = [10, 20, 9999].map((value, i) => ({
       index: i,
       seconds: i,
+      distanceMeters: null,
       repaired: value,
       original: null,
       heartRate: null,
@@ -170,6 +179,7 @@ describe('valueDomain', () => {
     const rows: ChartRow[] = Array.from({ length: 100 }, (_, i) => ({
       index: i,
       seconds: i,
+      distanceMeters: null,
       repaired: i === 50 ? 3300 : 250,
       original: null,
       heartRate: null,

@@ -3,6 +3,7 @@ import type { LatLngBounds, LatLngTuple } from 'leaflet';
 import { divIcon, latLngBounds } from 'leaflet';
 import {
   AttributionControl,
+  CircleMarker,
   MapContainer,
   Marker,
   Polyline,
@@ -14,6 +15,7 @@ import {
 
 import type { RepairSeries, TrustZone } from '../api/repair';
 import { drawnLine, stretchEnds, type Point } from '../drawing';
+import { zoneRuns } from '../routeZones';
 import {
   DrawingLayer,
   DrawingToolbar,
@@ -31,6 +33,7 @@ export interface MapTexts {
   readonly start: string;
   readonly finish: string;
   readonly measuredUntil: string;
+  readonly estimatedStretch: string;
   readonly zoomIn: string;
   readonly zoomOut: string;
   readonly draw: DrawTexts;
@@ -171,12 +174,15 @@ export function RouteMap({
   texts,
   className,
   onDraw,
+  activeIndex,
 }: {
   readonly series: RepairSeries;
   readonly zones: readonly TrustZone[];
   readonly texts: MapTexts;
   readonly className?: string;
   readonly onDraw?: (line: Point[]) => Promise<DrawAnswer>;
+  /** The record the chart's pointer or keyboard is on, or null (Story 3.4). */
+  readonly activeIndex?: number | null;
 }) {
   const [showRepaired, setShowRepaired] = useState(true);
   const [showOriginal, setShowOriginal] = useState(true);
@@ -198,6 +204,10 @@ export function RouteMap({
     () => measuredEndIndex(zones, series.secondsFromStart),
     [zones, series.secondsFromStart],
   );
+  const runs = useMemo(
+    () => zoneRuns(route, series.secondsFromStart, zones),
+    [route, series.secondsFromStart, zones],
+  );
   const ends = useMemo(
     () => stretchEnds(zones, series.secondsFromStart, route),
     [zones, series.secondsFromStart, route],
@@ -213,6 +223,8 @@ export function RouteMap({
 
   const hasOriginal = segments.length > 0;
   const markers = routeMarkers(route, measuredIndex);
+  const hasEstimated = runs.some((run) => run.kind === 'estimated');
+  const cursor = activeIndex === null || activeIndex === undefined ? undefined : route[activeIndex];
   const drawable = onDraw !== undefined && ends !== null;
   const line = ends === null ? [] : drawnLine(ends, history.present);
 
@@ -250,6 +262,15 @@ export function RouteMap({
           />
         )}
       </div>
+      {hasEstimated && showRepaired && (
+        <p className="mb-2 flex items-center gap-2 text-sm text-text-muted">
+          <span
+            aria-hidden="true"
+            className="inline-block w-6 border-t-4 border-solid border-estimated"
+          />
+          {texts.estimatedStretch}
+        </p>
+      )}
 
       <div className="relative isolate">
         <MapContainer
@@ -271,7 +292,14 @@ export function RouteMap({
             segments.map((positions, i) => (
               <Polyline key={i} positions={positions} className="route-original" />
             ))}
-          {showRepaired && <Polyline positions={route} className="route-repaired" />}
+          {showRepaired &&
+            runs.map((run, i) => (
+              <Polyline
+                key={i}
+                positions={run.positions}
+                className={run.kind === 'estimated' ? 'route-estimated' : 'route-repaired'}
+              />
+            ))}
 
           {markers.start !== undefined && (
             <Pin position={markers.start} icon={pins.start} label={texts.start} />
@@ -281,6 +309,10 @@ export function RouteMap({
           )}
           {markers.finish !== undefined && (
             <Pin position={markers.finish} icon={pins.finish} label={texts.finish} />
+          )}
+
+          {cursor !== undefined && (
+            <CircleMarker center={cursor} radius={7} className="route-cursor" interactive={false} />
           )}
 
           {drawing && ends !== null && (

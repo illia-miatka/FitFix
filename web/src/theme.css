@@ -135,6 +135,22 @@
   stroke-linejoin: round;
 }
 
+.route-estimated {
+  stroke: var(--color-estimated);
+  stroke-width: 4px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* The record under the chart's pointer (Story 3.4). A ring, so it is a different shape from every
+   pin; it is moved by Leaflet setting a position and carries no transition of its own. */
+.route-cursor {
+  stroke: var(--color-text);
+  stroke-width: 3px;
+  fill: var(--color-bg);
+  fill-opacity: 1;
+}
+
 .route-original {
   stroke: var(--color-original);
   stroke-width: 3px;

@@ -104,6 +104,9 @@ export function Result({
   onDrawStretch,
 }: ResultProps) {
   const { before, after } = report;
+  // The record the chart is on (Story 3.4): the one parent of both views holds it, so the map's
+  // marker and the chart's cursor can never name different records.
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
 
   // The file waits while the fragment warning stands (AD-22): somebody who grabbed the wrong track
   // would otherwise walk away with 320 s of their run replaced by a drawn line and no way to tell.
@@ -189,6 +192,7 @@ export function Result({
         series={report.series}
         zones={report.zones}
         texts={texts.map}
+        activeIndex={activeIndex}
         onDraw={
           onDrawStretch === undefined
             ? undefined
@@ -212,6 +216,7 @@ export function Result({
         sport={before.sport}
         texts={texts.chart}
         units={units}
+        onActiveIndex={setActiveIndex}
       />
 
       <div className="mt-section flex flex-col items-start gap-gutter md:flex-row md:items-center">

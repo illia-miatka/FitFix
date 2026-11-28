@@ -91,6 +91,8 @@ export interface ChartRow {
   /** The index of the Original's record this point is (AD-5). */
   readonly index: number;
   readonly seconds: number;
+  /** The repaired distance covered by this record, in metres (the table's column). */
+  readonly distanceMeters: number | null;
   /** Seconds per kilometre for a pace chart, km/h for a speed one; null where there is none. */
   readonly repaired: number | null;
   readonly original: number | null;
@@ -113,6 +115,7 @@ export function chartRows(series: RepairSeries, sport: string): ChartRow[] {
   return thinIndices(series.secondsFromStart.length).map((index) => ({
     index,
     seconds: series.secondsFromStart[index] ?? 0,
+    distanceMeters: series.repaired.distanceMeters[index] ?? null,
     repaired: valueOf(repaired[index], measure),
     original: valueOf(original[index], measure),
     heartRate: series.repaired.heartRate[index] ?? null,

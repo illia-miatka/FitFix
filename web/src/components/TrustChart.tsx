@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { ReactElement } from 'react';
 import {
   CartesianGrid,
@@ -8,6 +8,7 @@ import {
   Tooltip,
   XAxis,
   YAxis,
+  useActiveTooltipDataPoints,
 } from 'recharts';
 
 import type { RepairSeries, TrustZone } from '../api/repair';
@@ -20,7 +21,15 @@ import {
   valueDomain,
   type ChartRow,
 } from '../chart';
-import { duration, pace, speed, type PaceTexts, type SpeedTexts } from '../format';
+import {
+  duration,
+  kilometres,
+  pace,
+  speed,
+  type DistanceTexts,
+  type PaceTexts,
+  type SpeedTexts,
+} from '../format';
 
 /** `uk.result.chart` — every string of the chart (AD-18). */
 export interface ChartTexts {
@@ -35,6 +44,13 @@ export interface ChartTexts {
   readonly zones: string;
   readonly measured: string;
   readonly estimated: string;
+  readonly showTable: string;
+  readonly tableCaption: string;
+  readonly columnTime: string;
+  readonly columnDistance: string;
+  readonly columnPace: string;
+  readonly columnSpeed: string;
+  readonly noValue: string;
 }
 
 /** Both axes are this wide, and the band below is padded by the same amount to line up with the plot. */
@@ -79,14 +95,18 @@ export function TrustChart({
   texts,
   units,
   className,
+  onActiveIndex,
 }: {
   readonly series: RepairSeries;
   readonly zones: readonly TrustZone[];
   readonly sport: string;
   readonly texts: ChartTexts;
-  readonly units: PaceTexts & SpeedTexts;
+  readonly units: PaceTexts & SpeedTexts & DistanceTexts;
   readonly className?: string;
+  /** The record index under the pointer or the keyboard cursor, null when there is none. */
+  readonly onActiveIndex?: (index: number | null) => void;
 }) {
+  const [table, setTable] = useState(false);
   const rows = useMemo(() => chartRows(series, sport), [series, sport]);
   const segments = useMemo(() => bandSegments(zones), [zones]);
   const domain = useMemo(() => valueDomain(rows), [rows]);
@@ -106,93 +126,199 @@ export function TrustChart({
 
   return (
     <section className={className} aria-label={texts.title}>
-      <h2 className="mb-2 text-sm text-text-muted">{texts.title}</h2>
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-sm text-text-muted">{texts.title}</h2>
+        <button
+          type="button"
+          aria-pressed={table}
+          onClick={() => setTable((value) => !value)}
+          className={`rounded-pill border px-4 py-2 text-sm transition-colors ${
+            table
+              ? 'border-text-muted bg-surface-raised text-text'
+              : 'border-border bg-surface text-text-muted'
+          }`}
+        >
+          {texts.showTable}
+        </button>
+      </div>
 
-      <div role="img" aria-label={texts.alt} className="h-70 w-full">
-        <ResponsiveContainer width="100%" height={chartHeight} initialDimension={initialSize}>
-          <LineChart data={rows} margin={{ top: 16, right: 0, bottom: 0, left: 0 }}>
-            <CartesianGrid className="chart-grid" vertical={false} />
-            <XAxis
-              dataKey="seconds"
-              type="number"
-              domain={['dataMin', 'dataMax']}
-              tickFormatter={(value: number) => duration(value)}
-              className="chart-axis"
-            />
-            <YAxis
-              yAxisId="main"
-              orientation="left"
-              width={axisWidth}
-              reversed={!cycling}
-              domain={domain}
-              allowDataOverflow
-              tickFormatter={left}
-              className="chart-axis"
-            />
-            {heart && (
-              <YAxis
-                yAxisId="heart"
-                orientation="right"
-                width={axisWidth}
-                domain={['auto', 'auto']}
+      {table ? (
+        <RowsTable rows={rows} texts={texts} units={units} cycling={cycling} format={full} />
+      ) : (
+        <div role="img" aria-label={texts.alt} className="h-70 w-full">
+          <ResponsiveContainer width="100%" height={chartHeight} initialDimension={initialSize}>
+            <LineChart data={rows} margin={{ top: 16, right: 0, bottom: 0, left: 0 }}>
+              {onActiveIndex !== undefined && <ActiveReporter onChange={onActiveIndex} />}
+              <CartesianGrid className="chart-grid" vertical={false} />
+              <XAxis
+                dataKey="seconds"
+                type="number"
+                domain={['dataMin', 'dataMax']}
+                tickFormatter={(value: number) => duration(value)}
                 className="chart-axis"
               />
-            )}
-            <Tooltip
-              isAnimationActive={false}
-              content={
-                <ChartTooltip
-                  names={names}
-                  heartRate={texts.heartRate}
-                  heartRateUnit={texts.heartRateUnit}
-                  format={full}
+              <YAxis
+                yAxisId="main"
+                orientation="left"
+                width={axisWidth}
+                reversed={!cycling}
+                domain={domain}
+                allowDataOverflow
+                tickFormatter={left}
+                className="chart-axis"
+              />
+              {heart && (
+                <YAxis
+                  yAxisId="heart"
+                  orientation="right"
+                  width={axisWidth}
+                  domain={['auto', 'auto']}
+                  className="chart-axis"
                 />
-              }
-            />
-            <Line
-              yAxisId="main"
-              dataKey="original"
-              dot={false}
-              activeDot={false}
-              isAnimationActive={false}
-              connectNulls={false}
-              className="chart-original"
-              label={endLabel(
-                lastWith(rows, 'original', domain),
-                names.original,
-                'chart-label-original',
               )}
-            />
-            <Line
-              yAxisId="main"
-              dataKey="repaired"
-              dot={false}
-              isAnimationActive={false}
-              connectNulls={false}
-              className="chart-repaired"
-              label={endLabel(
-                lastWith(rows, 'repaired', domain),
-                names.repaired,
-                'chart-label-repaired',
-              )}
-            />
-            {heart && (
+              <Tooltip
+                isAnimationActive={false}
+                content={
+                  <ChartTooltip
+                    names={names}
+                    heartRate={texts.heartRate}
+                    heartRateUnit={texts.heartRateUnit}
+                    format={full}
+                  />
+                }
+              />
               <Line
-                yAxisId="heart"
-                dataKey="heartRate"
+                yAxisId="main"
+                dataKey="original"
+                dot={false}
+                activeDot={false}
+                isAnimationActive={false}
+                connectNulls={false}
+                className="chart-original"
+                label={endLabel(
+                  lastWith(rows, 'original', domain),
+                  names.original,
+                  'chart-label-original',
+                )}
+              />
+              <Line
+                yAxisId="main"
+                dataKey="repaired"
                 dot={false}
                 isAnimationActive={false}
                 connectNulls={false}
-                className="chart-heart"
-                label={endLabel(lastWith(rows, 'heartRate'), texts.heartRate, 'chart-label-heart')}
+                className="chart-repaired"
+                label={endLabel(
+                  lastWith(rows, 'repaired', domain),
+                  names.repaired,
+                  'chart-label-repaired',
+                )}
               />
-            )}
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
+              {heart && (
+                <Line
+                  yAxisId="heart"
+                  dataKey="heartRate"
+                  dot={false}
+                  isAnimationActive={false}
+                  connectNulls={false}
+                  className="chart-heart"
+                  label={endLabel(
+                    lastWith(rows, 'heartRate'),
+                    texts.heartRate,
+                    'chart-label-heart',
+                  )}
+                />
+              )}
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      )}
 
       <ZoneBand segments={segments} texts={texts} rightAxis={heart} />
     </section>
+  );
+}
+
+/**
+ * Tells the parent which record the pointer or the keyboard cursor is on. The row's own `index` is
+ * the Original's record index, so thinning never shifts it (AD-23). It lives inside the chart
+ * because that is where Recharts keeps the active point, for the pointer and the arrow keys alike.
+ * Leaving the chart, or swapping it for the table, clears it.
+ */
+function ActiveReporter({ onChange }: { readonly onChange: (index: number | null) => void }) {
+  const points = useActiveTooltipDataPoints<ChartRow>();
+  const index = points?.[0]?.index ?? null;
+  useEffect(() => {
+    onChange(index);
+  }, [index, onChange]);
+  useEffect(() => () => onChange(null), [onChange]);
+  return null;
+}
+
+/**
+ * The chart's rows as a table (Story 3.4): the same thinned rows the plot draws, so the two can
+ * not disagree. A focusable region so the keyboard can scroll it, a caption and column headers so
+ * a screen reader announces each cell with its meaning; a missing value is a dash, never empty.
+ */
+function RowsTable({
+  rows,
+  texts,
+  units,
+  cycling,
+  format,
+}: {
+  readonly rows: readonly ChartRow[];
+  readonly texts: ChartTexts;
+  readonly units: DistanceTexts;
+  readonly cycling: boolean;
+  readonly format: (value: number) => string;
+}) {
+  return (
+    <div
+      role="region"
+      aria-label={texts.tableCaption}
+      // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
+      tabIndex={0}
+      className="max-h-70 overflow-auto rounded-md border border-border"
+    >
+      <table className="w-full text-left text-sm">
+        <caption className="sr-only">{texts.tableCaption}</caption>
+        <thead className="sticky top-0 bg-surface-raised text-text-muted">
+          <tr>
+            <th scope="col" className="px-3 py-2 font-normal">
+              {texts.columnTime}
+            </th>
+            <th scope="col" className="px-3 py-2 font-normal">
+              {texts.columnDistance}
+            </th>
+            <th scope="col" className="px-3 py-2 font-normal">
+              {cycling ? texts.columnSpeed : texts.columnPace}
+            </th>
+            <th scope="col" className="px-3 py-2 font-normal">
+              {texts.heartRate}
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.index} className="border-t border-border text-text">
+              <td className="px-3 py-1">{duration(row.seconds)}</td>
+              <td className="px-3 py-1">
+                {row.distanceMeters === null
+                  ? texts.noValue
+                  : kilometres(row.distanceMeters, units)}
+              </td>
+              <td className="px-3 py-1">
+                {row.repaired === null ? texts.noValue : format(row.repaired)}
+              </td>
+              <td className="px-3 py-1">
+                {row.heartRate === null ? texts.noValue : `${row.heartRate} ${texts.heartRateUnit}`}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 

@@ -512,3 +512,31 @@ describe('the trust chart on the result (Story 3.3)', () => {
     expect(screen.getAllByText(uk.result.chart.speedRepaired).length).toBeGreaterThan(0);
   });
 });
+
+describe('the chart and the map together (Story 3.4)', () => {
+  it('puts a marker on the map where the keyboard is on the chart, and takes it away on the table', async () => {
+    const user = userEvent.setup();
+    const { container } = show(aReport(aRoute()));
+    expect(container.querySelectorAll('path.route-cursor')).toHaveLength(0);
+
+    container.querySelector<HTMLElement>('.recharts-wrapper [tabindex="0"]')?.focus();
+    await user.keyboard('{ArrowRight}');
+    expect(container.querySelectorAll('path.route-cursor')).toHaveLength(1);
+
+    await user.click(screen.getByRole('button', { name: uk.result.chart.showTable }));
+    expect(container.querySelectorAll('path.route-cursor')).toHaveLength(0);
+  });
+
+  it('takes the marker away when the keyboard leaves the chart', async () => {
+    const user = userEvent.setup();
+    const { container } = show(aReport(aRoute()));
+    const surface = container.querySelector<HTMLElement>('.recharts-wrapper [tabindex="0"]');
+
+    surface?.focus();
+    await user.keyboard('{ArrowRight}');
+    expect(container.querySelectorAll('path.route-cursor')).toHaveLength(1);
+
+    surface?.blur();
+    await waitFor(() => expect(container.querySelectorAll('path.route-cursor')).toHaveLength(0));
+  });
+});

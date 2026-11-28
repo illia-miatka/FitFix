@@ -198,3 +198,7 @@ Append-only: add entries, never rewrite existing ones.
 - source_spec: `spec-3-3-trust-chart.md`
   summary: Code-split the chart (and the map) out of the main bundle.
   evidence: Adding Recharts took the single bundle to about 843 kB and `vite build` warns about chunks over 500 kB. The result screen is the only user of Recharts and Leaflet, so a lazy import of the result route would keep the first screen small; not done here because the screen has no router and the gain is a few hundred milliseconds on a first load.
+
+- source_spec: `docs/implementation-artifacts/spec-3-4-map-chart-sync.md`
+  summary: Show the original's own position as a second marker when the chart is hovered, so the athlete sees where the watch thought it was next to where the route really was.
+  evidence: Cut from Story 3.4 to keep one marker; the contract already carries the original's latitude and longitude by record index, so it is a small follow-up that needs only a second ring on the map.

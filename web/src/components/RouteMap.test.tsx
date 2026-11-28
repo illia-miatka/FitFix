@@ -12,12 +12,17 @@ import { aReport, aRoute } from '../test/fixtures';
  * through the DOM Leaflet writes (paths, markers, controls), which is what a person's tools see.
  */
 
-function show(overrides: Partial<RepairReport> = {}) {
+function show(overrides: Partial<RepairReport> = {}, activeIndex?: number | null) {
   const { series, zones } = { ...aRoute(), ...overrides };
-  return render(<RouteMap series={series} zones={zones} texts={uk.result.map} />);
+  return render(
+    <RouteMap series={series} zones={zones} texts={uk.result.map} activeIndex={activeIndex} />,
+  );
 }
 
 const repairedLines = (container: HTMLElement) => container.querySelectorAll('path.route-repaired');
+const estimatedLines = (container: HTMLElement) =>
+  container.querySelectorAll('path.route-estimated');
+const cursors = (container: HTMLElement) => container.querySelectorAll('path.route-cursor');
 const originalLines = (container: HTMLElement) => container.querySelectorAll('path.route-original');
 
 describe('originalSegments', () => {
@@ -73,18 +78,28 @@ describe('measuredEndIndex', () => {
   });
 
   it('is null when the measured zone reaches the last record', () => {
-    expect(measuredEndIndex([{ kind: 'measured', fromSeconds: 0, toSeconds: 9 }], seconds)).toBeNull();
-    expect(measuredEndIndex([{ kind: 'measured', fromSeconds: 0, toSeconds: 20 }], seconds)).toBeNull();
+    expect(
+      measuredEndIndex([{ kind: 'measured', fromSeconds: 0, toSeconds: 9 }], seconds),
+    ).toBeNull();
+    expect(
+      measuredEndIndex([{ kind: 'measured', fromSeconds: 0, toSeconds: 20 }], seconds),
+    ).toBeNull();
   });
 
   it('is null when the measured zone ends at or before the first record', () => {
     // A marker there would sit on top of the start pin.
-    expect(measuredEndIndex([{ kind: 'measured', fromSeconds: 0, toSeconds: 0 }], seconds)).toBeNull();
-    expect(measuredEndIndex([{ kind: 'measured', fromSeconds: -3, toSeconds: -1 }], seconds)).toBeNull();
+    expect(
+      measuredEndIndex([{ kind: 'measured', fromSeconds: 0, toSeconds: 0 }], seconds),
+    ).toBeNull();
+    expect(
+      measuredEndIndex([{ kind: 'measured', fromSeconds: -3, toSeconds: -1 }], seconds),
+    ).toBeNull();
   });
 
   it('is null when every zone is estimated', () => {
-    expect(measuredEndIndex([{ kind: 'estimated', fromSeconds: 0, toSeconds: 9 }], seconds)).toBeNull();
+    expect(
+      measuredEndIndex([{ kind: 'estimated', fromSeconds: 0, toSeconds: 9 }], seconds),
+    ).toBeNull();
   });
 });
 
@@ -131,7 +146,7 @@ describe('the map', () => {
     expect(link?.rel).toContain('noopener');
   });
 
-  it('draws a pin per marker from the shape element, not from Leaflet\'s positioned one', () => {
+  it("draws a pin per marker from the shape element, not from Leaflet's positioned one", () => {
     const { container } = show();
     for (const kind of ['start', 'measured', 'finish']) {
       expect(container.querySelector(`.route-pin-${kind} > .route-pin-shape`)).not.toBeNull();
@@ -144,7 +159,9 @@ describe('the map', () => {
       <RouteMap series={first.series} zones={first.zones} texts={uk.result.map} />,
     );
     const tilesOf = () =>
-      [...container.querySelectorAll<HTMLImageElement>('img.leaflet-tile')].map((t) => t.src).sort();
+      [...container.querySelectorAll<HTMLImageElement>('img.leaflet-tile')]
+        .map((t) => t.src)
+        .sort();
     const before = tilesOf();
     expect(before.length).toBeGreaterThan(0);
 
@@ -155,7 +172,10 @@ describe('the map', () => {
         ...first.series.repaired,
         latitude: first.series.repaired.latitude.map((lat) => lat + 0.5),
       },
-      original: { ...first.series.original, latitude: first.series.original.latitude.map(() => null) },
+      original: {
+        ...first.series.original,
+        latitude: first.series.original.latitude.map(() => null),
+      },
     };
     rerender(<RouteMap series={moved} zones={first.zones} texts={uk.result.map} />);
 
@@ -192,6 +212,8 @@ describe('the map', () => {
     await user.click(repaired);
     expect(repaired).toHaveAttribute('aria-pressed', 'false');
     expect(repairedLines(container)).toHaveLength(0);
+    // The calculated stretch is part of the repaired layer and goes with it.
+    expect(estimatedLines(container)).toHaveLength(0);
     expect(originalLines(container)).toHaveLength(2);
 
     await user.click(original);
@@ -206,7 +228,10 @@ describe('the map', () => {
     const { series } = aRoute();
     const nothing = series.original.latitude.map(() => null);
     const { container } = show({
-      series: { ...series, original: { ...series.original, latitude: nothing, longitude: nothing } },
+      series: {
+        ...series,
+        original: { ...series.original, latitude: nothing, longitude: nothing },
+      },
     });
 
     expect(originalLines(container)).toHaveLength(0);
@@ -253,7 +278,9 @@ describe('the map', () => {
     const { container } = show();
     expect(container).not.toHaveTextContent('Leaflet');
     expect(container.querySelector('[aria-label="Close popup"]')).toBeNull();
-    expect(container.querySelector('[title="A JavaScript library for interactive maps"]')).toBeNull();
+    expect(
+      container.querySelector('[title="A JavaScript library for interactive maps"]'),
+    ).toBeNull();
   });
 
   it('draws nothing when the repaired track has no records', () => {
@@ -276,5 +303,66 @@ describe('the map', () => {
     });
     const { container } = render(<RouteMap series={series} zones={[]} texts={uk.result.map} />);
     expect(container).toBeEmptyDOMElement();
+  });
+});
+
+describe('the zones on the map (Story 3.4)', () => {
+  it('draws the calculated stretch in its own class and says so in words', () => {
+    const { container } = show();
+
+    expect(repairedLines(container)).toHaveLength(1);
+    expect(estimatedLines(container)).toHaveLength(1);
+    expect(screen.getByText(uk.result.map.estimatedStretch)).toBeInTheDocument();
+  });
+
+  it('draws one accent line and no legend when everything was measured', () => {
+    const { container } = show({ zones: [{ kind: 'measured', fromSeconds: 0, toSeconds: 9 }] });
+
+    expect(repairedLines(container)).toHaveLength(1);
+    expect(estimatedLines(container)).toHaveLength(0);
+    expect(screen.queryByText(uk.result.map.estimatedStretch)).toBeNull();
+  });
+
+  it('follows every alternation of the zones, with the line unbroken at the joins', () => {
+    const { container } = show({
+      zones: [
+        { kind: 'measured', fromSeconds: 0, toSeconds: 2 },
+        { kind: 'estimated', fromSeconds: 2, toSeconds: 4 },
+        { kind: 'measured', fromSeconds: 4, toSeconds: 6 },
+        { kind: 'estimated', fromSeconds: 6, toSeconds: 9 },
+      ],
+    });
+
+    expect(repairedLines(container)).toHaveLength(2);
+    expect(estimatedLines(container)).toHaveLength(2);
+  });
+});
+
+describe('the cursor from the chart (Story 3.4)', () => {
+  it('draws no marker without an active record', () => {
+    expect(cursors(show().container)).toHaveLength(0);
+    expect(cursors(show({}, null).container)).toHaveLength(0);
+  });
+
+  it('draws a marker at the record the chart is on, and it moves with the index', () => {
+    const { container, rerender } = show({}, 2);
+    const first = cursors(container)[0]?.getAttribute('d');
+    expect(first).toBeTruthy();
+
+    const { series, zones } = aRoute();
+    rerender(<RouteMap series={series} zones={zones} texts={uk.result.map} activeIndex={7} />);
+    const second = cursors(container)[0]?.getAttribute('d');
+    expect(cursors(container)).toHaveLength(1);
+    expect(second).toBeTruthy();
+    expect(second).not.toBe(first);
+  });
+
+  it('is not a tab stop and takes no click, so the map keeps its keys', () => {
+    const { container } = show({}, 3);
+    expect(cursors(container)[0]).not.toHaveClass('leaflet-interactive');
+  });
+
+  it('draws nothing for an index the route does not have', () => {
+    expect(cursors(show({}, 99).container)).toHaveLength(0);
   });
 });

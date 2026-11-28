@@ -279,6 +279,15 @@ export const uk = {
       zones: 'Зони довіри',
       measured: 'Позицію виміряв годинник',
       estimated: 'Позицію розраховано за еталонним треком',
+      /** The switch between the plot and the same rows as a table (Story 3.4). */
+      showTable: 'Таблиця',
+      tableCaption: 'Ті самі точки графіка таблицею',
+      columnTime: 'Час',
+      columnDistance: 'Дистанція',
+      columnPace: 'Темп',
+      columnSpeed: 'Швидкість',
+      /** A cell with nothing to say: the watch recorded no value there. */
+      noValue: '—',
     },
     map: {
       /** The map's own accessible name, with the two keys a keyboard user needs. */
@@ -290,6 +299,8 @@ export const uk = {
       finish: 'Фініш',
       /** The last place the position was measured; after it the track is calculated (AD-20). */
       measuredUntil: 'Далі позицію розраховано',
+      /** The legend of the amber stretches of the repaired line (Story 3.4). */
+      estimatedStretch: 'Розрахована ділянка',
       zoomIn: 'Збільшити масштаб',
       zoomOut: 'Зменшити масштаб',
       /** Drawing the missing stretch on the map (Story 5.4). */
