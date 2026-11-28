@@ -34,11 +34,16 @@ public sealed class ApiHost : IDisposable
     /// the trusted proxies. Passed the same way as the upload bound, so a suite can hold a
     /// limiter to two requests without waiting for sixty.
     /// </param>
+    /// <param name="useGivenUrls">
+    /// False lets the application choose its own address, for the one suite that is about the
+    /// port a platform named. Every other suite takes a port from the operating system.
+    /// </param>
     public ApiHost(
         string? maxUploadBytes = null,
         bool withProbes = true,
         string? webRoot = null,
-        IEnumerable<string>? settings = null)
+        IEnumerable<string>? settings = null,
+        bool useGivenUrls = true)
     {
         // Configuration travels as command-line arguments: no environment variable to leak
         // into another test running beside this one. The content root is the output directory,
@@ -53,7 +58,8 @@ public sealed class ApiHost : IDisposable
             args.AddRange(settings.Select(setting => "--" + setting));
 
         var builder = FitFixApi.CreateBuilder([.. args]);
-        builder.WebHost.UseUrls("http://127.0.0.1:0");
+        if (useGivenUrls)
+            builder.WebHost.UseUrls("http://127.0.0.1:0");
 
         // Only the collecting provider: the console would print a test's deliberate failures.
         builder.Logging.ClearProviders();
