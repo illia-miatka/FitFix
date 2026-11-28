@@ -241,3 +241,52 @@
   background: var(--color-surface-raised);
   color: var(--color-text);
 }
+
+/*
+ * The trust chart (Story 3.3). Recharts writes SVG, so lines and text are coloured by class, from
+ * the tokens, aimed at the curve itself: Recharts puts its own default `stroke` on the path, and
+ * that attribute would win over anything inherited from the group the class sits on. The repaired series is solid in the accent, the original dashed and muted, and the
+ * heart rate thin in its own colour — each also named at the end of its line, so a hue is never
+ * the only difference. The zone band and its legend use the same tokens as Tailwind utilities.
+ */
+.chart-repaired .recharts-line-curve {
+  stroke: var(--color-accent);
+  stroke-width: 2.5px;
+}
+.chart-original .recharts-line-curve {
+  stroke: var(--color-original);
+  stroke-width: 2px;
+  stroke-dasharray: 6 6;
+}
+.chart-heart .recharts-line-curve {
+  stroke: var(--color-heart);
+  stroke-width: 1.5px;
+}
+.chart-grid line {
+  stroke: var(--color-border);
+}
+.chart-axis text {
+  fill: var(--color-text-muted);
+  font-size: 12px;
+}
+.chart-axis line {
+  stroke: var(--color-border);
+}
+.chart-label-repaired,
+.chart-label-original,
+.chart-label-heart {
+  font-size: 12px;
+  /* A halo in the page colour, so a name stays readable where it crosses a line. */
+  paint-order: stroke;
+  stroke: var(--color-bg);
+  stroke-width: 4px;
+}
+.chart-label-repaired {
+  fill: var(--color-accent);
+}
+.chart-label-original {
+  fill: var(--color-original);
+}
+.chart-label-heart {
+  fill: var(--color-heart);
+}
