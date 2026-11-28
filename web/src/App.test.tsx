@@ -498,6 +498,69 @@ describe('confirming a fragment', () => {
   });
 });
 
+describe('two questions at once', () => {
+  const repair = () => screen.getByRole('button', { name: uk.repair.action });
+  const confirmFragment = () => screen.getByRole('button', { name: uk.result.confirmFragment });
+  const trustTrack = () => screen.getByRole('button', { name: uk.result.longTrack.trustTrack });
+
+  /** A repair that is both an over-long track and a fragment, so both questions are on screen. */
+  const longTrack = { code: 'TRACK_LONGER_THAN_ACTIVITY', severity: 'blocking' } as const;
+  const fragment = { code: 'TRACK_IS_A_FRAGMENT', severity: 'blocking' } as const;
+  const both = aReport({
+    ...aFragment,
+    track: { lengthMeters: 7400, usedLengthMeters: 6537.4 },
+    warnings: [longTrack, fragment],
+  });
+
+  /** The first repair answers at once; the next one waits until the test lets it go. */
+  async function withTheSecondRepairHeld() {
+    let release: (answer: Response) => void = () => {};
+    const held = new Promise<Response>((resolve) => (release = resolve));
+    let asked = 0;
+    const fetched = serviceDescribesEverything(() => (++asked === 1 ? answers(both) : held));
+
+    render(<App />);
+    await choose(uk.dropzones.original.pick, fitFile('Run_4k_Chabany.fit'));
+    await choose(uk.dropzones.track.pick, fitFile('route.gpx'));
+    await screen.findByText(uk.inspection.length);
+    await userEvent.click(repair());
+    await screen.findByRole('heading', { name: uk.result.title });
+    return { fetched, release };
+  }
+
+  it('refuses a length answer while the fragment answer is out, and sends nothing', async () => {
+    const { fetched, release } = await withTheSecondRepairHeld();
+    await userEvent.click(confirmFragment());
+    expect(repairCalls(fetched)).toBe(2);
+
+    await userEvent.click(trustTrack());
+
+    // One repair at a time: the second answer is turned away with the gate's own sentence, and
+    // the service is not asked a third time (the page's `running` guard).
+    expect(await screen.findByText(uk.result.longTrack.failed)).toBeInTheDocument();
+    expect(repairCalls(fetched)).toBe(2);
+
+    release(answers(aReport({ ...both, warnings: [longTrack] })));
+    await waitFor(() => expect(screen.queryByText(uk.result.confirmFragment)).toBeNull());
+    expect(repairCalls(fetched)).toBe(2);
+  });
+
+  it('refuses a fragment answer while the length answer is out, and sends nothing', async () => {
+    const { fetched, release } = await withTheSecondRepairHeld();
+    await userEvent.click(trustTrack());
+    expect(repairCalls(fetched)).toBe(2);
+
+    await userEvent.click(confirmFragment());
+
+    expect(await screen.findByText(uk.result.confirmFailed)).toBeInTheDocument();
+    expect(repairCalls(fetched)).toBe(2);
+
+    release(answers(both));
+    await waitFor(() => expect(trustTrack()).toHaveAttribute('aria-pressed', 'true'));
+    expect(repairCalls(fetched)).toBe(2);
+  });
+});
+
 describe('confirming a track far from the start', () => {
   const repair = () => screen.getByRole('button', { name: uk.repair.action });
   const download = () => screen.queryByRole('button', { name: uk.result.download });

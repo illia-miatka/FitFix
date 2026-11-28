@@ -5,7 +5,7 @@
 # bmad-build оновлює цей файл автоматично, коли бере сторі в роботу.
 
 generated: 11-19-2026 23:03
-last_updated: 11-28-2026 23:55
+last_updated: 11-28-2026 18:09
 project: FitFix
 project_key: NOKEY
 tracking_system: file-system
@@ -65,7 +65,7 @@ action_items:
     action: "Split the three gates out of Result.tsx into one module sharing pending/failure
       handling, and add the two-gate race test"
     owner: "Claude"
-    status: open
+    status: done
     ref: "docs/implementation-artifacts/epic-3-retro-2026-11-28.md"
   - id: "epic-3-retro-item-3-manual-browser-pass-of-the-result-screen"
     epic: 3
