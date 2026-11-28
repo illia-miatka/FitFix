@@ -181,6 +181,35 @@ export const uk = {
     decimalSeparator: units.decimalSeparator,
   },
 
+  /**
+   * What the service does with the two files (docs/PRIVACY.md is the English original). The
+   * first sentence is the whole answer; the rest is there for whoever wants it. Every claim
+   * here is one the service keeps by construction — nothing is written, because there is
+   * nowhere to write it (AD-3), and the log line has no field for a coordinate or an address
+   * (AD-9).
+   */
+  privacy: {
+    summary: 'Файли обробляються в пам’яті й ніде не зберігаються.',
+    more: 'Докладніше',
+    points: [
+      'Обидва файли приходять через HTTPS, живуть у пам’яті стільки, скільки триває один запит, і зникають разом із ним.',
+      'Сервіс не пише на диск нічого: файлова система контейнера доступна лише для читання, а завантажений файл тримається в пам’яті саме для того, щоб не лягти у тимчасовий файл.',
+      'Виправлений FIT приходить у відповіді й не лишається ніде. Закриєш вкладку — його треба буде зробити заново.',
+      'У логах — один рядок на запит: метод, маршрут, код відповіді, тривалість і розмір у байтах. Ні координат, ні назв файлів, ні того, що всередині, ні твоєї IP-адреси.',
+      'IP-адреса потрібна лише для того, щоб порахувати запити з одного місця й не дати комусь одному завалити сервіс. Ці лічильники живуть у пам’яті хвилини й нікуди не пишуться.',
+      'Жодних акаунтів, кук, аналітики й сторонніх скриптів. Реєструватися ніде не треба.',
+      'Карту малює твій браузер, а підкладку він просить у OpenStreetMap — тож OpenStreetMap бачить запити на плитки тієї околиці, де проходить маршрут. Сервіс не передає туди ні файлів, ні чогось про тебе.',
+      'Зі Strava сервіс не з’єднаний і доступу до неї не просить: файл ти експортуєш сам і заливаєш сам.',
+      'Це бета, яку робить одна людина. Вона може зламатися або згаснути — тримай оригінальний файл при собі.',
+    ],
+    contact: 'Щось не так або є питання —',
+    contactLabel: 'напиши в issues',
+    contactHref: 'https://github.com/illia-miatka/FitFix/issues',
+    mapIssue: 'Помилка на самій карті — стежка не та, назва неправильна —',
+    mapIssueLabel: 'повідом OpenStreetMap',
+    mapIssueHref: 'https://www.openstreetmap.org/fixthemap',
+  },
+
   howItWorks: {
     title: 'Як це працює',
     steps: [

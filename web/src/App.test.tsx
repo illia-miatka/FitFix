@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -69,8 +69,11 @@ describe('the empty state', () => {
     expect(screen.getByRole('button', { name: uk.dropzones.original.pick })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: uk.dropzones.track.pick })).toBeInTheDocument();
 
-    expect(screen.getByRole('heading', { name: uk.howItWorks.title })).toBeInTheDocument();
-    expect(screen.getAllByRole('listitem')).toHaveLength(uk.howItWorks.steps.length);
+    const steps = screen.getByRole('heading', { name: uk.howItWorks.title }).closest('section');
+    expect(steps).not.toBeNull();
+    // Scoped to the steps: the privacy note at the foot of the page is a list of its own, and
+    // counting every item on the page would make this test about the page's furniture.
+    expect(within(steps!).getAllByRole('listitem')).toHaveLength(uk.howItWorks.steps.length);
     for (const step of uk.howItWorks.steps) {
       expect(screen.getByRole('heading', { name: step.title })).toBeInTheDocument();
       expect(screen.getByText(step.body)).toBeInTheDocument();
