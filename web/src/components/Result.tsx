@@ -11,8 +11,9 @@ import type {
 import type { CoverageAnswer } from '../App';
 // The one place a code becomes a sentence (Story 2.7).
 import { codeText } from '../errors';
+import { measureFor } from '../chart';
 import type { Point } from '../drawing';
-import { duration, kilometres, pace } from '../format';
+import { averageSpeed, duration, heartRate, kilometres, pace } from '../format';
 import { RouteMap, type MapTexts } from './RouteMap';
 import { TrustChart, type ChartTexts } from './TrustChart';
 
@@ -23,6 +24,8 @@ export interface ResultTexts {
   readonly distance: string;
   readonly time: string;
   readonly pace: string;
+  readonly speed: string;
+  readonly heartRate: string;
   readonly noDistance: string;
   readonly noPace: string;
   readonly warnings: string;
@@ -153,6 +156,7 @@ export function Result({
   // on both sides. `movingSeconds` rather than the elapsed span: it is the `total_timer_time` the
   // written file states, so distance ÷ time on this screen really is the pace beside it.
   const seconds = after.movingSeconds;
+  const cycling = measureFor(before.sport) === 'speed';
   const recorded = before.recordedDistanceMeters;
 
   return (
@@ -232,14 +236,15 @@ export function Result({
           }
         />
 
-        <dl className="order-1 grid min-w-0 grid-cols-1 content-start gap-gutter md:order-2 md:col-span-5">
+        <dl className="hero-card order-1 flex min-w-0 flex-col content-start gap-4 rounded-lg border border-border bg-surface p-gutter md:order-2 md:col-span-5">
           <Delta
             label={texts.distance}
             texts={texts}
-            // A watch that recorded no distance has not recorded zero, and the column says which
-            // of the two happened rather than printing a nought the athlete would read as measured.
+            // A watch that recorded no distance has not recorded zero, and the row says which of
+            // the two happened rather than printing a nought the athlete would read as measured.
             before={recorded === null ? texts.noDistance : kilometres(recorded, units)}
             after={kilometres(after.distanceMeters, units)}
+            changed={recorded !== null}
           />
           <Delta
             label={texts.time}
@@ -247,12 +252,35 @@ export function Result({
             before={duration(seconds)}
             after={duration(seconds)}
           />
-          <Delta
-            label={texts.pace}
-            texts={texts}
-            before={(recorded === null ? null : pace(recorded, seconds, units)) ?? texts.noPace}
-            after={pace(after.distanceMeters, seconds, units) ?? texts.noPace}
-          />
+          {cycling ? (
+            <Delta
+              label={texts.speed}
+              texts={texts}
+              before={
+                (recorded === null ? null : averageSpeed(recorded, seconds, units)) ?? texts.noPace
+              }
+              after={averageSpeed(after.distanceMeters, seconds, units) ?? texts.noPace}
+              changed={recorded !== null}
+            />
+          ) : (
+            <Delta
+              label={texts.pace}
+              texts={texts}
+              before={(recorded === null ? null : pace(recorded, seconds, units)) ?? texts.noPace}
+              after={pace(after.distanceMeters, seconds, units) ?? texts.noPace}
+              changed={recorded !== null}
+            />
+          )}
+          {/* No strap, no row: a zero or a dash would read as a measurement. The repair keeps the
+              Original's own readings, so the two sides are one number. */}
+          {after.averageHeartRate !== null && (
+            <Delta
+              label={texts.heartRate}
+              texts={texts}
+              before={heartRate(after.averageHeartRate, texts.chart.heartRateUnit)}
+              after={heartRate(after.averageHeartRate, texts.chart.heartRateUnit)}
+            />
+          )}
         </dl>
 
         {/* Under the map, over the actions: where the position was measured and where it was
@@ -561,24 +589,32 @@ function Delta({
   texts,
   before,
   after,
+  changed = false,
 }: {
   readonly label: string;
   readonly texts: ResultTexts;
   readonly before: string;
   readonly after: string;
+  /**
+   * Whether the repair changed this value, so the old one is struck out. An unchanged figure is
+   * not: "was 19:59, now 19:59" with the first struck through would say it had been wrong. Also
+   * false where the old side is a sentence ("the watch recorded none"), which is not a value.
+   */
+  readonly changed?: boolean;
 }) {
+  const struck = changed && before !== after;
   return (
-    <div className="rounded-lg border border-border bg-surface p-gutter">
+    <div className="border-t border-border pt-4 first:border-t-0 first:pt-0">
       <dt className="text-sm text-text-muted">{label}</dt>
       <dd className="mt-2 flex flex-wrap items-baseline gap-2">
-        <span className="type-metric text-text-muted">
+        <span className={`type-metric text-text-muted ${struck ? 'line-through' : ''}`}>
           <span className="sr-only">{`${texts.before}: `}</span>
           {before}
         </span>
         <span aria-hidden="true" className="text-text-muted">
           →
         </span>
-        <span className="type-display text-2xl text-accent">
+        <span className="type-display text-2xl text-accent tabular-nums">
           <span className="sr-only">{`${texts.after}: `}</span>
           {after}
         </span>

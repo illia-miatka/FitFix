@@ -157,3 +157,12 @@ describe('contrast (Story 3.6)', () => {
     expect(ratio('#777777', '#ffffff')).toBeCloseTo(4.48, 2);
   });
 });
+
+describe('the hero card glow (Story 3.1)', () => {
+  it('is a radial gradient of about 6 % accent over transparent, derived from the token', () => {
+    const rule = /\.hero-card\s*\{([^}]*)\}/.exec(theme)?.[1] ?? '';
+
+    expect(rule).toContain('radial-gradient');
+    expect(rule).toMatch(/color-mix\(in srgb, var\(--color-accent\) 6%, transparent\)/);
+  });
+});
