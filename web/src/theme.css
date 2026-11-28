@@ -166,6 +166,16 @@
   line-height: 44px;
 }
 
+/* The hero card of the result (DESIGN.md): a soft lime glow, about 6 % of the accent, from the
+   top right. Derived from the token, so the accent stays defined in one place. */
+.hero-card {
+  background-image: radial-gradient(
+    120% 90% at 100% 0%,
+    color-mix(in srgb, var(--color-accent) 6%, transparent),
+    transparent 70%
+  );
+}
+
 /* A pin differs by shape as well as colour: circle, square, diamond. The shape is the inner
    element, because Leaflet writes its own inline `transform` on the marker element itself. */
 .route-pin-shape {

@@ -225,6 +225,9 @@ export const uk = {
     distance: 'Дистанція',
     time: 'Час',
     pace: 'Темп',
+    /** The third row for a cyclist, and the fourth for anybody whose strap recorded a heart. */
+    speed: 'Швидкість',
+    heartRate: 'Пульс',
 
     /** The watch recorded no distance, so the "before" column has no distance and no pace. */
     noDistance: noRecordedDistance,

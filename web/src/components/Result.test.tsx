@@ -138,6 +138,107 @@ describe('the numbers', () => {
   });
 });
 
+describe('the hero card (Story 3.1)', () => {
+  /** The old value of a row, which is the first of the two figures after its label. */
+  const oldValueOf = (row: HTMLElement) => row.querySelector('dd > span:first-child');
+  /** A row of the card by its label: "Пульс" is also a chart label and a table header. */
+  const rowOf = (label: string) => {
+    const term = [...document.querySelectorAll('dl.hero-card > div > dt')].find(
+      (candidate) => candidate.textContent === label,
+    );
+    expect(term, `a row labelled ${label}`).toBeDefined();
+    return term!.parentElement as HTMLElement;
+  };
+  const rowLabels = () =>
+    [...document.querySelectorAll('dl.hero-card > div > dt')].map((term) => term.textContent);
+
+  it('holds one row each for distance, time, pace and heart rate, was → now', () => {
+    show(aReport());
+
+    expect(document.querySelectorAll('dl.hero-card')).toHaveLength(1);
+    expect(rowLabels()).toEqual([
+      uk.result.distance,
+      uk.result.time,
+      uk.result.pace,
+      uk.result.heartRate,
+    ]);
+    const heart = rowOf(uk.result.heartRate);
+    // The repair keeps the Original's own readings, so both sides are the one average.
+    expect(heart).toHaveTextContent(`${uk.result.before}: 154 ${uk.result.chart.heartRateUnit}`);
+    expect(newValueOf(heart)).toContain(`154 ${uk.result.chart.heartRateUnit}`);
+  });
+
+  it('shows no heart-rate row, and no zero or dash in its place, without a strap', () => {
+    const base = aReport();
+    show({ ...base, after: { ...base.after, averageHeartRate: null } });
+
+    expect(rowLabels()).toEqual([uk.result.distance, uk.result.time, uk.result.pace]);
+  });
+
+  it('shows an average speed in place of the pace for a cyclist', () => {
+    const base = aReport();
+    show({ ...base, before: { ...base.before, sport: 'cycling' } });
+
+    expect(rowLabels()).toEqual([
+      uk.result.distance,
+      uk.result.time,
+      uk.result.speed,
+      uk.result.heartRate,
+    ]);
+    const row = metric(uk.result.speed);
+    // 3911 m and 6537.4 m over 2162 s, in km/h.
+    expect(row).toHaveTextContent('6,5 км/год');
+    expect(newValueOf(row)).toContain('10,9 км/год');
+    expect(screen.queryByText(uk.result.pace)).not.toBeInTheDocument();
+  });
+
+  it('strikes out an old value the repair changed, and only that one', () => {
+    show(aReport());
+
+    expect(oldValueOf(metric(uk.result.distance))).toHaveClass('line-through');
+    expect(oldValueOf(metric(uk.result.pace))).toHaveClass('line-through');
+    // Unchanged: struck out, it would say the figure had been wrong.
+    expect(oldValueOf(metric(uk.result.time))).not.toHaveClass('line-through');
+    expect(oldValueOf(rowOf(uk.result.heartRate))).not.toHaveClass('line-through');
+  });
+
+  it('does not strike a distance the repair left as it was', () => {
+    const base = aReport();
+    show({ ...base, before: { ...base.before, recordedDistanceMeters: 6537.4 } });
+
+    expect(oldValueOf(metric(uk.result.distance))).not.toHaveClass('line-through');
+  });
+
+  it('strikes out the old speed of a cyclist, the same rule as the pace', () => {
+    const base = aReport();
+    show({ ...base, before: { ...base.before, sport: 'cycling' } });
+
+    expect(oldValueOf(metric(uk.result.speed))).toHaveClass('line-through');
+  });
+
+  it.each(['running', 'cycling'])(
+    'does not strike a sentence: no recorded distance is not a value (%s)',
+    (sport) => {
+      const base = aReport();
+      show({ ...base, before: { ...base.before, sport, recordedDistanceMeters: null } });
+
+      const distance = metric(uk.result.distance);
+      expect(distance).toHaveTextContent(uk.result.noDistance);
+      expect(oldValueOf(distance)).not.toHaveClass('line-through');
+      // The third row has no old value either, and says so without striking the sentence.
+      const third = metric(sport === 'cycling' ? uk.result.speed : uk.result.pace);
+      expect(third).toHaveTextContent(uk.result.noPace);
+      expect(oldValueOf(third)).not.toHaveClass('line-through');
+    },
+  );
+
+  it('sets the new value in the accent with tabular figures', () => {
+    show(aReport());
+    const now = metric(uk.result.distance).querySelector('dd > span:last-child');
+    expect(now).toHaveClass('text-accent', 'tabular-nums');
+  });
+});
+
 describe('the warnings', () => {
   it('shows each code above the numbers, in the dictionary words', () => {
     const { container } = show(

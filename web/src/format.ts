@@ -66,6 +66,21 @@ export function speed(kilometresPerHour: number, texts: SpeedTexts): string {
 }
 
 /**
+ * The average speed of covering <paramref name="metres" /> in <paramref name="seconds" />, as
+ * `12,3 км/год`: what a cyclist reads where a runner reads a pace. Null on the same terms as
+ * `pace`, for the same reason.
+ */
+export function averageSpeed(metres: number, seconds: number, texts: SpeedTexts): string | null {
+  if (!(metres > 0) || !(seconds > 0)) return null;
+  return speed((metres / seconds) * 3.6, texts);
+}
+
+/** `154 уд/хв`: a whole number of beats, the way a strap reports it. */
+export function heartRate(beatsPerMinute: number, unit: string): string {
+  return `${Math.round(beatsPerMinute)} ${unit}`;
+}
+
+/**
  * An instant as `19.11.2026, 07:12`, in the reader's own time zone: the question it answers is
  * "is this the run I mean", and a Kyiv morning shown in UTC reads as a different hour.
  */
