@@ -29,7 +29,16 @@ public sealed class ApiHost : IDisposable
     /// <c>wwwroot</c> under the content root, which no test output has — the state every suite
     /// but the static one runs in.
     /// </param>
-    public ApiHost(string? maxUploadBytes = null, bool withProbes = true, string? webRoot = null)
+    /// <param name="settings">
+    /// Anything else a deployment would configure, as <c>KEY=value</c> pairs — the rate limits,
+    /// the trusted proxies. Passed the same way as the upload bound, so a suite can hold a
+    /// limiter to two requests without waiting for sixty.
+    /// </param>
+    public ApiHost(
+        string? maxUploadBytes = null,
+        bool withProbes = true,
+        string? webRoot = null,
+        IEnumerable<string>? settings = null)
     {
         // Configuration travels as command-line arguments: no environment variable to leak
         // into another test running beside this one. The content root is the output directory,
@@ -40,6 +49,8 @@ public sealed class ApiHost : IDisposable
             args.Add($"--{UploadLimit.ConfigurationKey}={maxUploadBytes}");
         if (webRoot is not null)
             args.Add($"--webroot={webRoot}");
+        if (settings is not null)
+            args.AddRange(settings.Select(setting => "--" + setting));
 
         var builder = FitFixApi.CreateBuilder([.. args]);
         builder.WebHost.UseUrls("http://127.0.0.1:0");

@@ -32,11 +32,11 @@ public static class InspectEndpoint
     /// </summary>
     private const string LogCategory = "FitFix.Api.Inspect";
 
-    public static void Map(IEndpointRouteBuilder endpoints)
+    public static RouteHandlerBuilder Map(IEndpointRouteBuilder endpoints)
     {
         ArgumentNullException.ThrowIfNull(endpoints);
 
-        endpoints.MapPost(Route, InspectAsync);
+        return endpoints.MapPost(Route, InspectAsync);
     }
 
     private static async Task<IResult> InspectAsync(HttpRequest request, ILoggerFactory loggers)

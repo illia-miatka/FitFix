@@ -20,8 +20,12 @@
  * is `FailureStatus.ForStatus`'s answer to every unnamed sub-500 status, so it is what a truncated
  * upload or a timed-out one arrives as: the file on disk is intact and the transfer is what broke,
  * which is the one 4xx that a second attempt can end differently. Its own sentence says so.
+ *
+ * `TOO_MANY_REQUESTS` is the other: the service refused to work right now, not to work on these
+ * files. Pressing again a minute later is exactly the right thing to do, so the button has to be
+ * there — a 429 with no retry would read as a verdict on the run.
  */
-const repeatableCodes: ReadonlySet<string> = new Set(['REQUEST_MALFORMED']);
+const repeatableCodes: ReadonlySet<string> = new Set(['REQUEST_MALFORMED', 'TOO_MANY_REQUESTS']);
 
 /**
  * Whether a failure that left with <paramref name="status" /> and <paramref name="code" /> may be

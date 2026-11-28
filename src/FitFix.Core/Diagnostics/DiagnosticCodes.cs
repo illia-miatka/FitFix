@@ -168,6 +168,14 @@ public static class DiagnosticCodes
     /// <summary>The path exists but not for this HTTP method (HTTP 405).</summary>
     public const string MethodNotAllowed = "METHOD_NOT_ALLOWED";
 
+    /// <summary>
+    /// The client asked too often, or the service is already running as many repairs as it
+    /// will run at once (HTTP 429). Nothing is wrong with the request or with the files; the
+    /// only honest advice is to wait, which is why it is its own code and not
+    /// <see cref="RequestMalformed"/>.
+    /// </summary>
+    public const string TooManyRequests = "TOO_MANY_REQUESTS";
+
     /// <summary>The endpoint cannot read a body in the media type offered (HTTP 415).</summary>
     public const string MediaTypeNotSupported = "MEDIA_TYPE_NOT_SUPPORTED";
 
@@ -256,6 +264,7 @@ public static class DiagnosticCodes
         [RouteNotFound] = DiagnosticSeverity.Blocking,
         [RequestMalformed] = DiagnosticSeverity.Blocking,
         [MethodNotAllowed] = DiagnosticSeverity.Blocking,
+        [TooManyRequests] = DiagnosticSeverity.Blocking,
         [MediaTypeNotSupported] = DiagnosticSeverity.Blocking,
         [ClientDisconnected] = DiagnosticSeverity.Blocking,
         [InspectRoleInvalid] = DiagnosticSeverity.Blocking,

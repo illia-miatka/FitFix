@@ -277,6 +277,7 @@ public class ContractShapeTests
     [InlineData(StatusCodes.Status405MethodNotAllowed, DiagnosticCodes.MethodNotAllowed)]
     [InlineData(StatusCodes.Status413PayloadTooLarge, DiagnosticCodes.FileTooLarge)]
     [InlineData(StatusCodes.Status415UnsupportedMediaType, DiagnosticCodes.MediaTypeNotSupported)]
+    [InlineData(StatusCodes.Status429TooManyRequests, DiagnosticCodes.TooManyRequests)]
     [InlineData(StatusCodes.Status408RequestTimeout, DiagnosticCodes.RequestMalformed)]
     [InlineData(StatusCodes.Status500InternalServerError, DiagnosticCodes.InternalError)]
     [InlineData(StatusCodes.Status503ServiceUnavailable, DiagnosticCodes.InternalError)]

@@ -1,8 +1,11 @@
 using System.Diagnostics;
+using System.Threading.RateLimiting;
 using FitFix.Api.Contracts;
 using FitFix.Core.Diagnostics;
 using Microsoft.AspNetCore.Connections;
 using Microsoft.AspNetCore.Http.Features;
+using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.FileProviders;
 
 namespace FitFix.Api;
@@ -39,6 +42,15 @@ public static class FitFixApi
     /// <summary>Keeps a log line short enough to read, and bounded whatever a request sends.</summary>
     private const int MaxLoggedLength = 48;
 
+    /// <summary>The global limiter's partition for everything it does not bound: the page.</summary>
+    private const string UnlimitedPartition = "unlimited";
+
+    /// <summary>
+    /// The rate-limiting partition of a request whose peer has no address. It is a name and not
+    /// an address, and it is the only partition key that ever appears in this file.
+    /// </summary>
+    private const string UnknownClient = "unknown";
+
     /// <summary>
     /// The builder with the input bound applied (AD-13): Kestrel's own ceiling, the multipart
     /// reader's and the threshold past which an uploaded part would be buffered to a temporary
@@ -64,7 +76,128 @@ public static class FitFixApi
             options.MemoryBufferThreshold = (int)maxUploadBytes;
         });
 
+        AddClientAddress(builder);
+        AddRateLimiting(builder);
+
         return builder;
+    }
+
+    /// <summary>
+    /// Reads <c>X-Forwarded-For</c> and <c>X-Forwarded-Proto</c> from the peers a deployment
+    /// trusts, so that behind a terminating proxy a request's client address is the client's
+    /// and its scheme is the one the browser used. The rate limiter partitions on that address
+    /// and HSTS is emitted on that scheme; both are wrong without this, and both would be wrong
+    /// in the other direction if the header were read from anyone (see <see cref="TrustedProxies"/>).
+    /// </summary>
+    private static void AddClientAddress(WebApplicationBuilder builder)
+    {
+        var trusted = TrustedProxies.From(builder.Configuration);
+
+        builder.Services.Configure<ForwardedHeadersOptions>(options =>
+        {
+            // Nothing configured, nothing read: the socket's address and scheme stand, which is
+            // both what a laptop wants and the safe side of the mistake — an unconfigured
+            // deployment limits everyone together rather than believing a header.
+            options.ForwardedHeaders = trusted.None
+                ? ForwardedHeaders.None
+                : ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+
+            options.ForwardLimit = TrustedProxies.ForwardLimit;
+
+            // The framework trusts loopback by default. Which peers may speak for a client is a
+            // deployment's decision here, so both lists start empty — and empty is exactly what
+            // "any" means to the middleware: with nothing to check against, it reads the header
+            // from whoever sent it, which is only ever right where that peer cannot be anyone
+            // but the platform's proxy.
+            options.KnownIPNetworks.Clear();
+            options.KnownProxies.Clear();
+
+            if (trusted.AnyPeer || trusted.None)
+                return;
+
+            foreach (var address in trusted.Addresses)
+                options.KnownProxies.Add(address);
+
+            foreach (var network in trusted.Networks)
+                options.KnownIPNetworks.Add(network);
+        });
+    }
+
+    /// <summary>
+    /// The per-client windows on <c>/api/inspect</c> and <c>/api/repair</c>, and the concurrency
+    /// bound across <c>/api</c> as a whole. A repair runs inside the request (AD-11) on a machine
+    /// with one shared core, so what protects a public deployment is not only how often one
+    /// client may ask but how many requests are in flight at once.
+    /// </summary>
+    /// <remarks>
+    /// A refusal leaves as a problem document with <c>TOO_MANY_REQUESTS</c>, like every other
+    /// refusal (AD-22). The partition key is the client's address and it is never logged: the
+    /// request line has no field for it, and an address is personal data on the same footing as
+    /// a coordinate (AD-9).
+    /// </remarks>
+    private static void AddRateLimiting(WebApplicationBuilder builder)
+    {
+        var limits = RateLimits.From(builder.Configuration);
+
+        builder.Services.AddRateLimiter(options =>
+        {
+            // Across every client and both endpoints. /api and nothing else: the platform polls
+            // /health on a schedule of its own, and the page is a handful of cacheable files
+            // that never reach a handler.
+            options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
+                context.Request.Path.StartsWithSegments(ApiPrefix)
+                    ? RateLimitPartition.GetConcurrencyLimiter(ApiPrefix, _ => new ConcurrencyLimiterOptions
+                    {
+                        PermitLimit = limits.Concurrency,
+                        QueueLimit = limits.Queue,
+                        QueueProcessingOrder = QueueProcessingOrder.OldestFirst
+                    })
+                    : RateLimitPartition.GetNoLimiter(UnlimitedPartition));
+
+            options.AddPolicy(
+                RateLimits.InspectPolicy,
+                context => PerClient(context, limits.InspectPermits, limits.InspectWindow));
+
+            options.AddPolicy(
+                RateLimits.RepairPolicy,
+                context => PerClient(context, limits.RepairPermits, limits.RepairWindow));
+
+            options.OnRejected = RejectAsync;
+        });
+    }
+
+    /// <summary>
+    /// One fixed window per client address. No queue: a client past its window is told so now,
+    /// because a page waiting silently for a minute is worse than a sentence it can read.
+    /// </summary>
+    private static RateLimitPartition<string> PerClient(HttpContext context, int permits, TimeSpan window) =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            // A request with no remote address — a unix socket, a test's in-memory transport —
+            // shares one partition rather than escaping the limit.
+            context.Connection.RemoteIpAddress?.ToString() ?? UnknownClient,
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = permits,
+                Window = window,
+                QueueLimit = 0,
+                AutoReplenishment = true
+            });
+
+    /// <summary>
+    /// What a client past a limit receives: the shell's own problem document (AD-22) and, when
+    /// the limiter knows it, how long to wait. The log line is the request line's, which carries
+    /// the code and no address.
+    /// </summary>
+    private static async ValueTask RejectAsync(OnRejectedContext context, CancellationToken cancellationToken)
+    {
+        var problem = ProblemDetailsFactory.Create(StatusCodes.Status429TooManyRequests, DiagnosticCodes.TooManyRequests);
+
+        var retryAfter = context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var window)
+            // A window of less than a second still means "not now": one second, never zero.
+            ? Math.Max(1, (int)Math.Ceiling(window.TotalSeconds))
+            : (int?)null;
+
+        await ProblemDetailsFactory.TryWriteAsync(context.HttpContext, problem, retryAfter);
     }
 
     /// <summary>
@@ -92,6 +225,11 @@ public static class FitFixApi
         // once rather than left to be guessed from a refusal.
         logger.LogInformation("The upload limit is {MaxUploadBytes} bytes.", maxUploadBytes);
 
+        // Before anything reads an address or a scheme: behind a terminating proxy both arrive
+        // in a header, and from here on the request reports the client's rather than the
+        // proxy's. A deployment that trusts no peer gets the socket's own, unchanged.
+        app.UseForwardedHeaders();
+
         // The failure handler, outermost on purpose: it covers the endpoints, the routing that
         // matches none, and the body-size refusal Kestrel raises while a handler is reading.
         app.Use((context, next) => HandleAsync(context, next, logger, maxUploadBytes));
@@ -115,15 +253,21 @@ public static class FitFixApi
             },
         });
 
+        // After the static files, so the page is never rate-limited: a request for a hashed
+        // bundle is answered above and never reaches the limiter. /health is mapped below and
+        // does reach it, where the global limiter leaves it alone — it is not under /api, and
+        // the platform's own probe must not be refused because a stranger is busy uploading.
+        app.UseRateLimiter();
+
         app.MapGet("/health", () => Results.Ok(new HealthResponse("ok")));
 
         // Story 2.2. Its own refusals travel through the handler above like every other, so the
         // endpoint states what is wrong with a code and never writes a status of its own.
-        InspectEndpoint.Map(app);
+        InspectEndpoint.Map(app).RequireRateLimiting(RateLimits.InspectPolicy);
 
         // Story 2.3, through the same handler: the repair's own refusals are the core's, each
         // carrying a code, and the one answer it writes itself is the successful one.
-        RepairEndpoint.Map(app);
+        RepairEndpoint.Map(app).RequireRateLimiting(RateLimits.RepairPolicy);
 
         additionalEndpoints?.Invoke(app);
 
@@ -211,7 +355,7 @@ public static class FitFixApi
             {
                 routed = true;
                 await next(context);
-                code = await RewriteBodilessFailureAsync(context, logger);
+                code = await RewriteBodilessFailureAsync(context, logger) ?? NameAnsweredFailure(context);
             }
         }
         // Kestrel's own refusals, each carrying the status it chose: 413 for a body past the
@@ -313,6 +457,18 @@ public static class FitFixApi
 
         return await RefuseAsync(context, response.StatusCode, FailureStatus.ForStatus(response.StatusCode), logger);
     }
+
+    /// <summary>
+    /// Names a refusal that answered itself before this handler saw it — the rate limiter, which
+    /// writes its own problem document from <c>OnRejected</c>. Without this the request line would
+    /// report the status and a code of "-", and the one record of a refusal (AD-9) would not say
+    /// what was refused. Returns null for anything that has not already been written, which is
+    /// where <see cref="RewriteBodilessFailureAsync"/> is still the answer.
+    /// </summary>
+    private static string? NameAnsweredFailure(HttpContext context) =>
+        context.Response.HasStarted && context.Response.StatusCode >= StatusCodes.Status400BadRequest
+            ? FailureStatus.ForStatus(context.Response.StatusCode)
+            : null;
 
     /// <summary>
     /// Narrows this request's body bound to the configured limit. Kestrel already carries the

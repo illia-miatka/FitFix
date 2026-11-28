@@ -52,11 +52,11 @@ public static class RepairEndpoint
     /// </summary>
     private const int UtcOffsetSeconds = 0;
 
-    public static void Map(IEndpointRouteBuilder endpoints)
+    public static RouteHandlerBuilder Map(IEndpointRouteBuilder endpoints)
     {
         ArgumentNullException.ThrowIfNull(endpoints);
 
-        endpoints.MapPost(Route, RepairAsync);
+        return endpoints.MapPost(Route, RepairAsync);
     }
 
     private static async Task<IResult> RepairAsync(HttpRequest request, ILoggerFactory loggers)
