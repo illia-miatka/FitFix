@@ -41,6 +41,10 @@ services:
       # proxy that is the only way in (Caddy on loopback, a platform's router), set it to the
       # proxy's address or network, or to "any" when no other peer can reach the container.
       # FITFIX_TRUSTED_PROXIES: "any"
+      # How many entries that proxy appends to X-Forwarded-For, read from the right: one for a
+      # single proxy, two behind Google's front end, which appends the client's address and its
+      # own. Too few partitions the rate limit on the proxy; too many start believing the caller.
+      # FITFIX_FORWARD_HOPS: "1"
 
       # How long the service waits for its own answer. A repair gets its own, longer one.
       # FITFIX_TIMEOUT_SECONDS: "30"

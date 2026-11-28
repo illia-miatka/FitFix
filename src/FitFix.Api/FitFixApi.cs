@@ -77,6 +77,11 @@ public static class FitFixApi
             options.MemoryBufferThreshold = (int)maxUploadBytes;
         });
 
+        // Where the platform names the port instead of the image (Cloud Run injects PORT). Set
+        // before the tests' own UseUrls, which comes after this call and so still wins.
+        if (ListenPort.From(builder.Configuration) is { } url)
+            builder.WebHost.UseUrls(url);
+
         AddClientAddress(builder);
         AddRateLimiting(builder);
         AddTimeouts(builder);
@@ -124,7 +129,7 @@ public static class FitFixApi
                 ? ForwardedHeaders.None
                 : ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
 
-            options.ForwardLimit = TrustedProxies.ForwardLimit;
+            options.ForwardLimit = trusted.Hops;
 
             // The framework trusts loopback by default. Which peers may speak for a client is a
             // deployment's decision here, so both lists start empty — and empty is exactly what

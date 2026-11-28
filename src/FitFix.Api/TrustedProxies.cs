@@ -20,6 +20,12 @@ public static class TrustedProxies
     public const string ConfigurationKey = "FITFIX_TRUSTED_PROXIES";
 
     /// <summary>
+    /// The configuration key for how many hops of <c>X-Forwarded-For</c> the trusted peer
+    /// appends. See <see cref="Trusted.Hops"/> for why a deployment has to say.
+    /// </summary>
+    public const string HopsConfigurationKey = "FITFIX_FORWARD_HOPS";
+
+    /// <summary>
     /// Trusts whichever peer the request arrived from. Correct only where the container cannot
     /// be reached except through the platform's proxy — a Fly.io machine on its private network,
     /// a container published on loopback behind Caddy — because there the peer is always that
@@ -29,11 +35,18 @@ public static class TrustedProxies
     public const string Any = "any";
 
     /// <summary>
-    /// How many hops of <c>X-Forwarded-For</c> are read: one, always. The trusted proxy appends
-    /// the address it accepted the connection from, so the last entry is the one it wrote and
-    /// everything to the left of it is whatever the client claimed.
+    /// How many hops are read when a deployment does not say: one. A proxy that terminates TLS
+    /// itself appends the address it accepted the connection from, so the last entry is the one
+    /// it wrote and everything left of it is whatever the client claimed.
     /// </summary>
-    public const int ForwardLimit = 1;
+    public const int DefaultHops = 1;
+
+    /// <summary>
+    /// The most hops a deployment may ask for. Each hop read is an entry trusted, and a number
+    /// larger than the chain in front of the service would start reading the caller's own
+    /// entries — the one mistake here that a client can exploit.
+    /// </summary>
+    public const int MaxHops = 4;
 
     /// <summary>
     /// What the deployment named, split into the addresses and networks to trust.
@@ -44,13 +57,14 @@ public static class TrustedProxies
     {
         ArgumentNullException.ThrowIfNull(configuration);
 
+        var hops = Hops(configuration);
         var configured = configuration[ConfigurationKey];
 
         if (string.IsNullOrWhiteSpace(configured))
-            return new Trusted([], [], AnyPeer: false);
+            return new Trusted([], [], AnyPeer: false, Hops: hops);
 
         if (configured.Trim().Equals(Any, StringComparison.OrdinalIgnoreCase))
-            return new Trusted([], [], AnyPeer: true);
+            return new Trusted([], [], AnyPeer: true, Hops: hops);
 
         List<IPAddress> addresses = [];
         List<IPNetwork> networks = [];
@@ -71,17 +85,31 @@ public static class TrustedProxies
             }
         }
 
-        return new Trusted(addresses, networks, AnyPeer: false);
+        return new Trusted(addresses, networks, AnyPeer: false, Hops: hops);
     }
+
+    private static int Hops(IConfiguration configuration) =>
+        int.TryParse(configuration[HopsConfigurationKey], out var hops) && hops is >= 1 and <= MaxHops
+            ? hops
+            : DefaultHops;
 
     /// <summary>The peers a deployment named, in the shape the forwarded-headers options want.</summary>
     /// <param name="Addresses">Single proxy addresses.</param>
     /// <param name="Networks">Proxy networks, written as CIDR.</param>
     /// <param name="AnyPeer">Whether every peer is trusted (<see cref="Any"/>).</param>
+    /// <param name="Hops">
+    /// How many entries of <c>X-Forwarded-For</c> to read, from the right. One is right for a
+    /// proxy that appends a single address. Google's front end appends two — the client's
+    /// address and its own forwarding rule's — so a service behind it reads two, and its own
+    /// documentation says the entries before those two are not verified and must not be
+    /// trusted. Reading fewer than the chain appends leaves the limit partitioned on a proxy;
+    /// reading more starts believing the caller.
+    /// </param>
     public sealed record Trusted(
         IReadOnlyList<IPAddress> Addresses,
         IReadOnlyList<IPNetwork> Networks,
-        bool AnyPeer)
+        bool AnyPeer,
+        int Hops)
     {
         /// <summary>True when no peer is trusted, so no forwarded header is read.</summary>
         public bool None => !AnyPeer && Addresses.Count == 0 && Networks.Count == 0;

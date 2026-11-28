@@ -1,0 +1,116 @@
+name: Deploy to Cloud Run
+
+# By hand only. CI already builds and smoke-tests the image on every push (ci.yml); deploying
+# on a push as well would only add a way to ship a bad build while nobody is watching. The
+# runbook is docs/implementation-artifacts/cloud-run-runbook.md.
+on:
+  workflow_dispatch:
+    inputs:
+      service:
+        description: The Cloud Run service to deploy to.
+        required: false
+        default: fitfix
+
+# Nothing deploys twice at once: a second run waits rather than racing the first to the same
+# revision.
+concurrency:
+  group: deploy-cloud-run
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  # What workload identity federation needs to mint a token for Google, and the reason there is
+  # no service-account key in this repository's secrets.
+  id-token: write
+
+jobs:
+  deploy:
+    name: Build, push and deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    # The settings an operator adds once (see the runbook, §7). Until they exist the
+    # authentication step fails and nothing is built, pushed or deployed.
+    env:
+      PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      REGION: ${{ vars.GCP_REGION }}
+      SERVICE: ${{ inputs.service }}
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+
+      - name: Say what is missing before anything else happens
+        # Through the environment and not interpolated into the script: a secret's own
+        # characters have no business being parsed as shell.
+        env:
+          WIF_PROVIDER: ${{ secrets.GCP_WIF_PROVIDER }}
+          DEPLOY_SERVICE_ACCOUNT: ${{ secrets.GCP_DEPLOY_SERVICE_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          # A failure here is a configuration that was never finished, and it should read as
+          # that rather than as an authentication error forty seconds later.
+          missing=""
+          [ -n "${PROJECT_ID}" ] || missing="${missing} vars.GCP_PROJECT_ID"
+          [ -n "${REGION}" ] || missing="${missing} vars.GCP_REGION"
+          [ -n "${WIF_PROVIDER}" ] || missing="${missing} secrets.GCP_WIF_PROVIDER"
+          [ -n "${DEPLOY_SERVICE_ACCOUNT}" ] || missing="${missing} secrets.GCP_DEPLOY_SERVICE_ACCOUNT"
+          if [ -n "${missing}" ]; then
+            echo "Not configured for deployment yet. Missing:${missing}" >&2
+            echo "See docs/implementation-artifacts/cloud-run-runbook.md, section 7." >&2
+            exit 1
+          fi
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Let Docker push to Artifact Registry
+        run: gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+
+      - name: Build the image
+        run: |
+          set -euo pipefail
+          # The commit, never `latest`: a rollback is then naming the previous tag, and a
+          # revision can be traced to the code it was built from. The runner is x86-64, so the
+          # platform the runbook insists on for a laptop is already what this builds.
+          echo "IMAGE=${REGION}-docker.pkg.dev/${PROJECT_ID}/fitfix/fitfix:${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+          docker build --tag "${REGION}-docker.pkg.dev/${PROJECT_ID}/fitfix/fitfix:${GITHUB_SHA::7}" .
+
+      - name: Push it
+        run: docker push "${IMAGE}"
+
+      - name: Deploy
+        run: |
+          set -euo pipefail
+          # The same settings as the runbook's manual command, in the same order, so the two
+          # cannot drift apart unnoticed: §0 of the runbook says what each one is for.
+          gcloud run deploy "${SERVICE}" \
+            --image "${IMAGE}" \
+            --region "${REGION}" \
+            --allow-unauthenticated \
+            --port 8080 \
+            --cpu 1 \
+            --memory 1Gi \
+            --min-instances 0 \
+            --max-instances 1 \
+            --concurrency 4 \
+            --timeout 150 \
+            --set-env-vars FITFIX_TRUSTED_PROXIES=any,FITFIX_FORWARD_HOPS=2 \
+            --quiet
+
+      - name: Ask the deployed revision whether it is alive
+        run: |
+          set -euo pipefail
+          url=$(gcloud run services describe "${SERVICE}" --region "${REGION}" --format='value(status.url)')
+          curl --fail --silent --show-error "${url}/health" | grep -q '"status":"ok"'
+          # The header that says the service can see it is behind HTTPS. Missing it means the
+          # forwarded headers did not take effect, and with them the per-client rate limit.
+          curl --fail --silent --dump-header - --output /dev/null "${url}/" \
+            | grep -qi 'strict-transport-security'
+          echo "Deployed ${IMAGE} to ${url}"
