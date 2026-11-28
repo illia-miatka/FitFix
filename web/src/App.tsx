@@ -5,6 +5,7 @@ import type { RepairReport, TrackCoverageMode } from './api/repair';
 import { Dropzone } from './components/Dropzone';
 import { HowItWorks } from './components/HowItWorks';
 import { Notice } from './components/Notice';
+import { PrivacyNote } from './components/PrivacyNote';
 import { Result } from './components/Result';
 import { drawnTrackFile, type Point } from './drawing';
 import { codeText } from './errors';
@@ -157,6 +158,8 @@ export function App() {
             onDrawStretch={drawStretch}
           />
         </div>
+
+        <PrivacyNote texts={uk.privacy} />
       </main>
     );
   }
@@ -241,6 +244,8 @@ export function App() {
       <div className="mt-section">
         <HowItWorks title={uk.howItWorks.title} steps={uk.howItWorks.steps} />
       </div>
+
+      <PrivacyNote texts={uk.privacy} />
     </main>
   );
 }
