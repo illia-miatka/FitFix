@@ -210,3 +210,7 @@ Append-only: add entries, never rewrite existing ones.
 - source_spec: `docs/implementation-artifacts/spec-3-5-long-track-decision.md`
   summary: No test starts a length answer while a coverage answer is in flight, or the reverse.
   evidence: `chooseLength` and `answerCoverage` share the `running` ref, and both gates disable their own buttons while pending, so the race needs two gates answered inside one request window; the guard is untested on both sides, not only the new one.
+
+- source_spec: `docs/implementation-artifacts/spec-3-6-phone-view.md`
+  summary: Bring the empty state's controls (the dropzone clear button at 32 px, and the retry button of a notice if it is still short) to 44×44 px on a phone.
+  evidence: Story 3.6 measured and fixed the result screen only; the verification reviewer noticed `Dropzone.tsx` still sizes its clear button at `size-8`. The same 44 px rule would apply to the first screen a runner sees on a phone.

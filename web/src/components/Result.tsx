@@ -206,62 +206,67 @@ export function Result({
         />
       )}
 
-      <dl className="mt-gutter grid grid-cols-1 gap-gutter md:grid-cols-3">
-        <Delta
-          label={texts.distance}
-          texts={texts}
-          // A watch that recorded no distance has not recorded zero, and the column says which
-          // of the two happened rather than printing a nought the athlete would read as measured.
-          before={recorded === null ? texts.noDistance : kilometres(recorded, units)}
-          after={kilometres(after.distanceMeters, units)}
+      {/* The result's grid (Story 3.6): the map 7/12 beside the metrics 5/12 from 768 px, the chart
+          under both; on a phone one column with the numbers first, so a 320 px map does not push
+          them off the screen. The DOM order is the desktop reading order, and the metrics hold
+          nothing focusable, so the phone's `order` moves no focus. */}
+      <div className="mt-gutter grid grid-cols-1 gap-gutter md:grid-cols-12">
+        {/* The athlete checks that the line is their own route before taking the file (Story 3.2). */}
+        <RouteMap
+          className="order-2 min-w-0 md:order-1 md:col-span-7"
+          series={report.series}
+          zones={report.zones}
+          texts={texts.map}
+          activeIndex={activeIndex}
+          onDraw={
+            onDrawStretch === undefined
+              ? undefined
+              : async (line) => {
+                  const answered = await onDrawStretch(line);
+                  // A refusal in the service's own words, like the fragment question; no code is a
+                  // request that never arrived, and the map has a sentence of its own for that.
+                  return answered.ok || answered.code === undefined
+                    ? { ok: answered.ok }
+                    : { ok: false, message: codeText(codes, answered.code).text };
+                }
+          }
         />
-        <Delta
-          label={texts.time}
-          texts={texts}
-          before={duration(seconds)}
-          after={duration(seconds)}
-        />
-        <Delta
-          label={texts.pace}
-          texts={texts}
-          before={(recorded === null ? null : pace(recorded, seconds, units)) ?? texts.noPace}
-          after={pace(after.distanceMeters, seconds, units) ?? texts.noPace}
-        />
-      </dl>
 
-      {/* Below the numbers and above the actions (Story 3.2): the athlete checks that the line is
-          their own route before taking the file. */}
-      <RouteMap
-        className="mt-gutter"
-        series={report.series}
-        zones={report.zones}
-        texts={texts.map}
-        activeIndex={activeIndex}
-        onDraw={
-          onDrawStretch === undefined
-            ? undefined
-            : async (line) => {
-                const answered = await onDrawStretch(line);
-                // A refusal in the service's own words, like the fragment question; no code is a
-                // request that never arrived, and the map has a sentence of its own for that.
-                return answered.ok || answered.code === undefined
-                  ? { ok: answered.ok }
-                  : { ok: false, message: codeText(codes, answered.code).text };
-              }
-        }
-      />
+        <dl className="order-1 grid min-w-0 grid-cols-1 content-start gap-gutter md:order-2 md:col-span-5">
+          <Delta
+            label={texts.distance}
+            texts={texts}
+            // A watch that recorded no distance has not recorded zero, and the column says which
+            // of the two happened rather than printing a nought the athlete would read as measured.
+            before={recorded === null ? texts.noDistance : kilometres(recorded, units)}
+            after={kilometres(after.distanceMeters, units)}
+          />
+          <Delta
+            label={texts.time}
+            texts={texts}
+            before={duration(seconds)}
+            after={duration(seconds)}
+          />
+          <Delta
+            label={texts.pace}
+            texts={texts}
+            before={(recorded === null ? null : pace(recorded, seconds, units)) ?? texts.noPace}
+            after={pace(after.distanceMeters, seconds, units) ?? texts.noPace}
+          />
+        </dl>
 
-      {/* Under the map, over the actions: where the position was measured and where it was
+        {/* Under the map, over the actions: where the position was measured and where it was
           calculated, against the pace and the heart rate (Story 3.3). */}
-      <TrustChart
-        className="mt-gutter"
-        series={report.series}
-        zones={report.zones}
-        sport={before.sport}
-        texts={texts.chart}
-        units={units}
-        onActiveIndex={setActiveIndex}
-      />
+        <TrustChart
+          className="order-3 min-w-0 md:col-span-12"
+          series={report.series}
+          zones={report.zones}
+          sport={before.sport}
+          texts={texts.chart}
+          units={units}
+          onActiveIndex={setActiveIndex}
+        />
+      </div>
 
       <div className="mt-section flex flex-col items-start gap-gutter md:flex-row md:items-center">
         {/* Withheld rather than disabled: a download button that cannot be pressed invites the

@@ -146,6 +146,15 @@ describe('the map', () => {
     expect(link?.rel).toContain('noopener');
   });
 
+  it('gives every pin a 44 px box for a thumb, around the 18 px shape (Story 3.6)', () => {
+    const { container } = show();
+    for (const kind of ['start', 'measured', 'finish']) {
+      const marker = container.querySelector<HTMLElement>(`.route-pin-${kind}`);
+      expect(marker?.style.width).toBe('44px');
+      expect(marker?.style.height).toBe('44px');
+    }
+  });
+
   it("draws a pin per marker from the shape element, not from Leaflet's positioned one", () => {
     const { container } = show();
     for (const kind of ['start', 'measured', 'finish']) {
