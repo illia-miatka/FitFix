@@ -132,7 +132,7 @@ export function TrustChart({
           type="button"
           aria-pressed={table}
           onClick={() => setTable((value) => !value)}
-          className={`rounded-pill border px-4 py-2 text-sm transition-colors ${
+          className={`min-h-11 rounded-pill border px-4 py-2 text-sm transition-colors ${
             table
               ? 'border-text-muted bg-surface-raised text-text'
               : 'border-border bg-surface text-text-muted'

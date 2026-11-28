@@ -185,7 +185,7 @@ export function DrawingToolbar({
           disabled={busy || empty}
           aria-busy={busy}
           onClick={onConfirm}
-          className="rounded-pill bg-accent px-4 py-2 text-sm text-accent-ink disabled:cursor-not-allowed disabled:bg-surface-raised disabled:text-text-muted"
+          className="min-h-11 rounded-pill bg-accent px-4 py-2 text-sm text-accent-ink disabled:cursor-not-allowed disabled:bg-surface-raised disabled:text-text-muted"
         >
           {busy ? texts.confirming : texts.confirm}
         </button>
@@ -212,7 +212,7 @@ function Tool({
       type="button"
       disabled={disabled}
       onClick={onPress}
-      className="rounded-pill border border-border bg-surface px-4 py-2 text-sm text-text transition-colors enabled:hover:bg-surface-raised disabled:cursor-not-allowed disabled:text-text-muted"
+      className="min-h-11 rounded-pill border border-border bg-surface px-4 py-2 text-sm text-text transition-colors enabled:hover:bg-surface-raised disabled:cursor-not-allowed disabled:text-text-muted"
     >
       {label}
     </button>

@@ -100,12 +100,60 @@ describe('no component names a raw colour', () => {
     expect(theme).toMatch(/\.leaflet-tile-pane\s*\{[^}]*\bfilter:\s*invert\(1\)/);
   });
 
-  it.each(others.map((path) => relative(srcRoot, path)))('%s holds no hex or rgb() colour', (name) => {
-    const source = readFileSync(join(srcRoot, name), 'utf8');
-    const literals = [
-      ...source.matchAll(/#[0-9a-fA-F]{3,8}\b/g),
-      ...source.matchAll(/\b(?:rgba?|hsla?|oklch)\(/g),
-    ].map((match) => match[0]);
-    expect(literals, `${name} should use a token from theme.css instead`).toEqual([]);
+  it.each(others.map((path) => relative(srcRoot, path)))(
+    '%s holds no hex or rgb() colour',
+    (name) => {
+      const source = readFileSync(join(srcRoot, name), 'utf8');
+      const literals = [
+        ...source.matchAll(/#[0-9a-fA-F]{3,8}\b/g),
+        ...source.matchAll(/\b(?:rgba?|hsla?|oklch)\(/g),
+      ].map((match) => match[0]);
+      expect(literals, `${name} should use a token from theme.css instead`).toEqual([]);
+    },
+  );
+});
+
+describe('contrast (Story 3.6)', () => {
+  /** WCAG 2.x relative luminance of a `#rrggbb` colour. */
+  function luminance(hex: string): number {
+    const channel = (offset: number) => {
+      const value = parseInt(hex.slice(offset, offset + 2), 16) / 255;
+      return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+    };
+    return 0.2126 * channel(1) + 0.7152 * channel(3) + 0.0722 * channel(5);
+  }
+  const ratio = (foreground: string, background: string) => {
+    const [light, dark] = [luminance(foreground), luminance(background)].sort((a, b) => b - a);
+    return ((light as number) + 0.05) / ((dark as number) + 0.05);
+  };
+  const token = (name: string) => {
+    const match = new RegExp(`--color-${name}:\\s*(#[0-9a-fA-F]{6})`).exec(theme);
+    expect(match, `--color-${name} is defined`).not.toBeNull();
+    return (match as RegExpExecArray)[1] as string;
+  };
+
+  const surfaces = ['bg', 'surface', 'surface-raised'];
+  // Every colour a piece of text is set in on the result screen, each against every surface that
+  // text can sit on. `accent-ink` is the one text colour that sits on a colour, not a surface.
+  const text = ['text', 'text-muted', 'accent', 'estimated', 'danger', 'info', 'heart'];
+  // The original's grey is text in one place only, the end label of its chart line, which sits on
+  // the page and never on a raised card (it is 4.44:1 there, a pair the screen does not have).
+  const pairs = [
+    ...text.flatMap((name) => surfaces.map((surface) => [name, surface] as const)),
+    ['original', 'bg'] as const,
+    ['original', 'surface'] as const,
+  ];
+
+  it.each(pairs)('%s on %s is at least 4.5:1', (name, surface) => {
+    expect(ratio(token(name), token(surface))).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('keeps the ink of a filled button readable on the accent', () => {
+    expect(ratio(token('accent-ink'), token('accent'))).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('computes the ratio the way WCAG states it', () => {
+    expect(ratio('#ffffff', '#000000')).toBeCloseTo(21, 5);
+    expect(ratio('#777777', '#ffffff')).toBeCloseTo(4.48, 2);
   });
 });

@@ -125,7 +125,7 @@ function pin(kind: 'start' | 'finish' | 'measured' | 'end') {
   return divIcon({
     className: `route-pin route-pin-${kind}`,
     html: '<span class="route-pin-shape"></span>',
-    iconSize: [18, 18],
+    iconSize: [44, 44],
   });
 }
 
@@ -332,7 +332,7 @@ export function RouteMap({
         <button
           type="button"
           onClick={() => setDrawing(true)}
-          className="mt-2 rounded-pill border border-border bg-surface px-4 py-2 text-sm text-text transition-colors hover:bg-surface-raised"
+          className="mt-2 min-h-11 rounded-pill border border-border bg-surface px-4 py-2 text-sm text-text transition-colors hover:bg-surface-raised"
         >
           {texts.draw.begin}
         </button>
@@ -390,7 +390,7 @@ function Toggle({
       type="button"
       aria-pressed={pressed}
       onClick={onToggle}
-      className={`flex items-center gap-2 rounded-pill border px-4 py-2 text-sm transition-colors ${
+      className={`flex min-h-11 items-center gap-2 rounded-pill border px-4 py-2 text-sm transition-colors ${
         pressed
           ? 'border-text-muted bg-surface-raised text-text'
           : 'border-border bg-surface text-text-muted line-through'

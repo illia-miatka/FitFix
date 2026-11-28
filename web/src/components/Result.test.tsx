@@ -479,15 +479,45 @@ describe('starting again', () => {
 });
 
 describe('the map', () => {
-  it('sits between the numbers and the actions, with the repaired line drawn', () => {
+  it('sits above the actions beside the numbers, with the repaired line drawn', () => {
     const { container } = show(aReport(aRoute()));
 
     const map = screen.getByRole('region', { name: uk.result.map.label });
-    const numbers = metric(uk.result.distance);
     const download = screen.getByRole('button', { name: uk.result.download });
-    expect(numbers.compareDocumentPosition(map) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(map.compareDocumentPosition(download) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(metric(uk.result.distance)).toBeInTheDocument();
     expect(container.querySelectorAll('path.route-repaired')).toHaveLength(1);
+  });
+});
+
+describe('the layout of the result (Story 3.6)', () => {
+  /** The grid items by what they hold. jsdom has no layout, so the contract is the classes. */
+  function parts() {
+    const { container } = show(aReport(aRoute()));
+    const map = screen.getByRole('region', { name: uk.result.map.label }).closest('section');
+    const metrics = screen.getByText(uk.result.distance).closest('dl');
+    const chart = screen.getByRole('region', { name: uk.result.chart.title });
+    return { grid: map?.parentElement, map, metrics, chart, container };
+  }
+
+  it('puts the map 7/12 beside the metrics 5/12 and the chart across both, from 768 px', () => {
+    const { grid, map, metrics, chart } = parts();
+
+    expect(grid).toHaveClass('grid', 'grid-cols-1', 'md:grid-cols-12');
+    expect(map).toHaveClass('md:col-span-7');
+    expect(metrics).toHaveClass('md:col-span-5');
+    expect(chart).toHaveClass('md:col-span-12');
+    expect(metrics?.parentElement).toBe(grid);
+    expect(chart.parentElement).toBe(grid);
+  });
+
+  it('is one column below 768 px with the numbers before the map', () => {
+    const { map, metrics, chart } = parts();
+
+    // `order` only applies inside the grid: no `md:` prefix means it holds on a phone.
+    expect(metrics).toHaveClass('order-1', 'md:order-2');
+    expect(map).toHaveClass('order-2', 'md:order-1');
+    expect(chart).toHaveClass('order-3');
   });
 });
 

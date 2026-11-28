@@ -53,7 +53,7 @@ export function Notice({ text, code, retry }: NoticeProps) {
         <button
           type="button"
           onClick={retry.onPress}
-          className="mt-3 rounded-pill border border-border bg-surface-raised px-4 py-2 text-sm text-text-muted transition-colors hover:text-text"
+          className="mt-3 min-h-11 rounded-pill border border-border bg-surface-raised px-4 py-2 text-sm text-text-muted transition-colors hover:text-text"
         >
           {retry.label}
         </button>
