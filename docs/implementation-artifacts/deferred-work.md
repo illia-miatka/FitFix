@@ -202,3 +202,11 @@ Append-only: add entries, never rewrite existing ones.
 - source_spec: `docs/implementation-artifacts/spec-3-4-map-chart-sync.md`
   summary: Show the original's own position as a second marker when the chart is hovered, so the athlete sees where the watch thought it was next to where the route really was.
   evidence: Cut from Story 3.4 to keep one marker; the contract already carries the original's latitude and longitude by record index, so it is a small follow-up that needs only a second ring on the map.
+
+- source_spec: `docs/implementation-artifacts/spec-3-5-long-track-decision.md`
+  summary: Show `TRACK_FAR_FROM_ORIGINAL` with the distance between the activity's start and the track, and gate the download until the athlete explicitly confirms the track is right.
+  evidence: Split from Story 3.5 by the human on 2026-11-28. The warning carries no data today (`RepairWarningResponse` is a code and a severity) and the closest-approach distance is computed in `Aligner` and thrown away, so the story needs a new contract field through the core and the API plus a client-side gate; the callout and download withholding are the same mechanism 3.5 added for the long track.
+
+- source_spec: `docs/implementation-artifacts/spec-3-5-long-track-decision.md`
+  summary: No test starts a length answer while a coverage answer is in flight, or the reverse.
+  evidence: `chooseLength` and `answerCoverage` share the `running` ref, and both gates disable their own buttons while pending, so the race needs two gates answered inside one request window; the guard is untested on both sides, not only the new one.

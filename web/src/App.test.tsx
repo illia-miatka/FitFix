@@ -263,7 +263,9 @@ describe('pressing the button', () => {
   });
 
   it('forgets a refusal as soon as one of the files changes', async () => {
-    const fetched = serviceDescribesEverything(() => answers({ code: 'TRACK_FAR_FROM_ORIGINAL' }, 400));
+    const fetched = serviceDescribesEverything(() =>
+      answers({ code: 'TRACK_FAR_FROM_ORIGINAL' }, 400),
+    );
     await withBothFiles(fetched);
     await userEvent.click(repair());
     await screen.findByText(uk.codes.TRACK_FAR_FROM_ORIGINAL);
@@ -306,7 +308,9 @@ describe('pressing the button', () => {
     // `TRACK_TOO_FEW_POINTS` is a 400 in `FailureStatus`, which is what makes this test about the
     // status and not about the component's mood. `DISTANCE_SERIES_IMPLAUSIBLE` would not do: the
     // API serves that one at 500, so a fixture pairing it with 400 would pass for the wrong reason.
-    const fetched = serviceDescribesEverything(() => answers({ code: 'TRACK_TOO_FEW_POINTS' }, 400));
+    const fetched = serviceDescribesEverything(() =>
+      answers({ code: 'TRACK_TOO_FEW_POINTS' }, 400),
+    );
     await withBothFiles(fetched);
 
     await userEvent.click(repair());
@@ -439,9 +443,7 @@ describe('confirming a fragment', () => {
 
     await userEvent.click(screen.getByRole('button', { name: uk.result.confirmFragment }));
 
-    expect(
-      await screen.findByRole('button', { name: uk.result.download }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: uk.result.download })).toBeInTheDocument();
     expect(screen.queryByText(uk.codes.TRACK_IS_A_FRAGMENT)).not.toBeInTheDocument();
     expect(repairCalls(fetched)).toBe(2);
 
@@ -492,6 +494,146 @@ describe('confirming a fragment', () => {
     expect(screen.getByText(uk.codes.TRACK_IS_A_FRAGMENT)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: uk.result.download })).not.toBeInTheDocument();
     expect(repairCalls(fetched)).toBe(2);
+  });
+});
+
+describe('deciding about a long track (Story 3.5)', () => {
+  const repair = () => screen.getByRole('button', { name: uk.repair.action });
+  const download = () => screen.queryByRole('button', { name: uk.result.download });
+  const keep = () => screen.getByRole('button', { name: uk.result.longTrack.keepTrimmed });
+  const trust = () => screen.getByRole('button', { name: uk.result.longTrack.trustTrack });
+
+  /** The over-long track as the service answers it: trimmed by default, whole when trusted. */
+  const trimmed = aReport({
+    track: { lengthMeters: 7400, usedLengthMeters: 6537.4 },
+    warnings: [{ code: 'TRACK_LONGER_THAN_ACTIVITY', severity: 'blocking' }],
+  });
+  const whole = aReport({
+    ...trimmed,
+    after: { ...trimmed.after, distanceMeters: 7400 },
+    track: { lengthMeters: 7400, usedLengthMeters: 7400 },
+  });
+
+  /** What each request said, read back out of the form it was sent as. */
+  function fieldsOf(fetched: ReturnType<typeof serviceDescribesEverything>, field: string) {
+    return fetched.mock.calls
+      .filter(([url]) => url === '/api/repair')
+      .map(([, request]) => ((request as RequestInit).body as FormData).get(field));
+  }
+
+  function serviceTrimsUnlessTrusted() {
+    return serviceDescribesEverything((request) => {
+      const mode = (request.body as FormData).get('trackLengthMode');
+      return answers(mode === 'full' ? whole : trimmed);
+    });
+  }
+
+  async function atTheDecision() {
+    render(<App />);
+    await choose(uk.dropzones.original.pick, fitFile('Run_4k_Chabany.fit'));
+    await choose(uk.dropzones.track.pick, fitFile('route.gpx'));
+    await screen.findByText(uk.inspection.length);
+    await userEvent.click(repair());
+    await screen.findByRole('heading', { name: uk.result.title });
+  }
+
+  it('withholds the file, then repeats the repair with the full length and replaces the preview', async () => {
+    const fetched = serviceTrimsUnlessTrusted();
+    await atTheDecision();
+    expect(download()).not.toBeInTheDocument();
+    expect(fieldsOf(fetched, 'trackLengthMode')).toEqual([null]);
+
+    await userEvent.click(trust());
+
+    expect(await screen.findByRole('button', { name: uk.result.download })).toBeEnabled();
+    expect(fieldsOf(fetched, 'trackLengthMode')).toEqual([null, 'full']);
+    // The whole preview is the new answer's: the distance beside the old one, and the warning still
+    // on the screen, because trusting the track does not make it plausible.
+    expect(screen.getByText(uk.result.distance).parentElement).toHaveTextContent(
+      `${uk.result.after}: 7,40`,
+    );
+    expect(screen.getByText(uk.codes.TRACK_LONGER_THAN_ACTIVITY)).toBeInTheDocument();
+    expect(trust()).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('offers the file without a second request when the trimmed length is kept', async () => {
+    const fetched = serviceTrimsUnlessTrusted();
+    await atTheDecision();
+
+    await userEvent.click(keep());
+
+    expect(await screen.findByRole('button', { name: uk.result.download })).toBeEnabled();
+    expect(repairCalls(fetched)).toBe(1);
+    expect(keep()).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText(uk.codes.TRACK_LONGER_THAN_ACTIVITY)).toBeInTheDocument();
+  });
+
+  it('repeats with the plain length when the athlete changes their mind', async () => {
+    const fetched = serviceTrimsUnlessTrusted();
+    await atTheDecision();
+
+    await userEvent.click(trust());
+    await screen.findByRole('button', { name: uk.result.download });
+    await userEvent.click(keep());
+
+    await waitFor(() => expect(keep()).toHaveAttribute('aria-pressed', 'true'));
+    expect(fieldsOf(fetched, 'trackLengthMode')).toEqual([null, 'full', 'plausible']);
+  });
+
+  it('keeps the file withheld and says so when the repeat never arrives', async () => {
+    let asks = 0;
+    serviceDescribesEverything(() => {
+      asks += 1;
+      if (asks === 1) return answers(trimmed);
+      throw new TypeError('Failed to fetch');
+    });
+    await atTheDecision();
+
+    await userEvent.click(trust());
+
+    expect(await screen.findByText(uk.result.longTrack.failed)).toBeInTheDocument();
+    expect(download()).not.toBeInTheDocument();
+    expect(trust()).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('carries the length answer into a later coverage answer, and the coverage into the length one', async () => {
+    // Both warnings at once is not a state the core produces, but the requests have to be right
+    // whichever answer comes second: nothing is stored, so each repeat restates the other.
+    const both = aReport({
+      ...trimmed,
+      redrawn: aFragment.redrawn,
+      warnings: [...trimmed.warnings, ...aFragment.warnings],
+    });
+    const fetched = serviceDescribesEverything(() => answers(both));
+    await atTheDecision();
+
+    await userEvent.click(trust());
+    await userEvent.click(screen.getByRole('button', { name: uk.result.confirmFragment }));
+    await waitFor(() => expect(repairCalls(fetched)).toBe(3));
+    expect(fieldsOf(fetched, 'trackLengthMode')).toEqual([null, 'full', 'full']);
+    expect(fieldsOf(fetched, 'trackCoverage')).toEqual([null, null, 'fragment']);
+
+    await userEvent.click(keep());
+    await waitFor(() => expect(repairCalls(fetched)).toBe(4));
+    expect(fieldsOf(fetched, 'trackLengthMode')[3]).toBe('plausible');
+    expect(fieldsOf(fetched, 'trackCoverage')[3]).toBe('fragment');
+  });
+
+  it('forgets the decision when the athlete starts again', async () => {
+    const fetched = serviceTrimsUnlessTrusted();
+    await atTheDecision();
+    await userEvent.click(trust());
+    await screen.findByRole('button', { name: uk.result.download });
+
+    await userEvent.click(screen.getByRole('button', { name: uk.result.startAgain }));
+    await choose(uk.dropzones.original.pick, fitFile('Run_4k_Chabany.fit'));
+    await choose(uk.dropzones.track.pick, fitFile('route.gpx'));
+    await screen.findByText(uk.inspection.length);
+    await userEvent.click(repair());
+    await screen.findByRole('heading', { name: uk.result.title });
+
+    expect(fieldsOf(fetched, 'trackLengthMode')).toEqual([null, 'full', null]);
+    expect(download()).not.toBeInTheDocument();
   });
 });
 

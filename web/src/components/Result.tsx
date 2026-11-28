@@ -1,6 +1,13 @@
+import { Info, TriangleAlert } from 'lucide-react';
 import { useState } from 'react';
 
-import type { RedrawnSpan, RepairReport, RepairWarning } from '../api/repair';
+import type {
+  RedrawnSpan,
+  RepairReport,
+  RepairWarning,
+  TrackLengthMode,
+  TrackLengths,
+} from '../api/repair';
 import type { CoverageAnswer } from '../App';
 // The one place a code becomes a sentence (Story 2.7).
 import { codeText } from '../errors';
@@ -31,8 +38,21 @@ export interface ResultTexts {
   readonly download: string;
   readonly startAgain: string;
   readonly strava: string;
+  readonly longTrack: LongTrackTexts;
   readonly map: MapTexts;
   readonly chart: ChartTexts;
+}
+
+/** `uk.result.longTrack` — the decision about a track longer than the activity could cover. */
+export interface LongTrackTexts {
+  readonly trackLength: string;
+  readonly usedLength: string;
+  readonly hint: string;
+  readonly withheld: string;
+  readonly keepTrimmed: string;
+  readonly trustTrack: string;
+  readonly choosing: string;
+  readonly failed: string;
 }
 
 /** `uk.units` — what a distance and a pace are written in. */
@@ -68,6 +88,10 @@ export interface ResultProps {
    * drawing: a screen that cannot act on a drawing has no business inviting one.
    */
   readonly onDrawStretch?: (line: Point[]) => Promise<CoverageAnswer>;
+  /** Which length the athlete chose for an over-long track, or null while nothing is chosen. */
+  readonly lengthDecision: TrackLengthMode | null;
+  /** Answers the over-long track warning (Story 3.5); the page repeats the repair if it must. */
+  readonly onChooseLength: (mode: TrackLengthMode) => Promise<CoverageAnswer>;
 }
 
 /** What the saved file is called, as KF-1 names it: `Run_4k_Chabany_fixed.fit`. */
@@ -80,6 +104,9 @@ const fixedSuffix = '_fixed.fit';
  * warnings have confirmations of their own that no story has shipped yet.
  */
 const fragmentCode = 'TRACK_IS_A_FRAGMENT';
+
+/** `DiagnosticCodes.TrackLongerThanActivity` — the second code with a decision of its own (3.5). */
+const longerCode = 'TRACK_LONGER_THAN_ACTIVITY';
 
 /**
  * The result state of EXPERIENCE.md: the warnings as a callout above the numbers, the three
@@ -102,6 +129,8 @@ export function Result({
   onConfirmFragment,
   onUseWholeRoute,
   onDrawStretch,
+  lengthDecision,
+  onChooseLength,
 }: ResultProps) {
   const { before, after } = report;
   // The record the chart is on (Story 3.4): the one parent of both views holds it, so the map's
@@ -111,9 +140,13 @@ export function Result({
   // The file waits while the fragment warning stands (AD-22): somebody who grabbed the wrong track
   // would otherwise walk away with 320 s of their run replaced by a drawn line and no way to tell.
   // The warning is gone from the confirmed answer, so the gate opens without a flag of its own.
-  const gated = report.warnings.some(
-    (warning) => warning.code === fragmentCode && warning.severity === 'blocking',
-  );
+  const blockedBy = (code: string) =>
+    report.warnings.some((warning) => warning.code === code && warning.severity === 'blocking');
+  const fragmentGated = blockedBy(fragmentCode);
+  // An over-long track keeps its warning after the athlete has chosen — trusting the track does not
+  // make it plausible (AD-17) — so this gate reads the recorded answer, not the warning's absence.
+  const longTrack = blockedBy(longerCode);
+  const gated = fragmentGated || (longTrack && lengthDecision === null);
 
   // The repair keeps the Original's clock, so these seconds are the "before" ones too — which is
   // why they are also the denominator of both paces, and why the time row states the same value
@@ -138,7 +171,7 @@ export function Result({
 
       {/* The question itself, under the warning that raised it: which seconds and which metres
           were redrawn, and the one answer only the athlete has. */}
-      {gated && (
+      {fragmentGated && (
         <FragmentGate
           // `?? null` and not a cast: a service a version ahead of this build may send a warning
           // whose span this contract does not know, and the question still has to be asked.
@@ -155,11 +188,22 @@ export function Result({
           carries `redrawn`, and the screen that offers the file is the one that has to say which
           seconds of the run are a drawn line. `!= null` and not `!== null`: a service a version
           behind sends no field at all, which means the same as null. */}
-      {!gated && report.redrawn != null && (
+      {!fragmentGated && report.redrawn != null && (
         <div className="mt-gutter rounded-md border border-border bg-surface p-gutter">
           <RedrawnStretch span={report.redrawn} texts={texts} units={units} />
           <p className="mt-gutter text-sm text-text-muted">{texts.keptOwn}</p>
         </div>
+      )}
+
+      {longTrack && (
+        <LongTrackGate
+          track={report.track}
+          decision={lengthDecision}
+          texts={texts}
+          units={units}
+          codes={codes}
+          onChoose={onChooseLength}
+        />
       )}
 
       <dl className="mt-gutter grid grid-cols-1 gap-gutter md:grid-cols-3">
@@ -273,7 +317,17 @@ function Callout({
         blocking ? 'border-l-danger' : 'border-l-estimated'
       }`}
     >
-      <p className={`type-display text-sm ${blocking ? 'text-danger' : 'text-estimated'}`}>
+      <p
+        className={`type-display flex items-center gap-2 text-sm ${
+          blocking ? 'text-danger' : 'text-estimated'
+        }`}
+      >
+        {/* Beside the word, never instead of it: the severity is said in words too. */}
+        {blocking ? (
+          <TriangleAlert aria-hidden="true" size={16} />
+        ) : (
+          <Info aria-hidden="true" size={16} />
+        )}
         {blocking ? texts.blocking : texts.info}
       </p>
       {/* The sentence for the code. One the dictionary has no sentence for still reads as a
@@ -367,6 +421,96 @@ function FragmentGate({
       </button>
 
       {/* A live region: the sentence arrives seconds after the press, as the repair's own does. */}
+      <div role="status" className="empty:hidden">
+        {failure !== null && <p className="mt-2 text-sm text-danger">{failure}</p>}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The decision of Story 3.5: how far the repaired run goes when the track is longer than the
+ * activity could have covered. Both lengths come from the answer, and the two answers are two
+ * buttons that state which one is chosen. Neither is chosen at first, and the file waits for one
+ * (AD-22). Keeping the trimmed length asks the service nothing; trusting the track repeats the
+ * repair, which is the page's business.
+ */
+function LongTrackGate({
+  track,
+  decision,
+  texts,
+  units,
+  codes,
+  onChoose,
+}: {
+  readonly track: TrackLengths;
+  readonly decision: TrackLengthMode | null;
+  readonly texts: ResultTexts;
+  readonly units: UnitTexts;
+  readonly codes: Readonly<Record<string, string>>;
+  readonly onChoose: (mode: TrackLengthMode) => Promise<CoverageAnswer>;
+}) {
+  const [pending, setPending] = useState<TrackLengthMode | null>(null);
+  const [failure, setFailure] = useState<string | null>(null);
+  const words = texts.longTrack;
+
+  async function choose(mode: TrackLengthMode) {
+    // The same guard as the fragment question: two clicks can land inside one render.
+    if (pending !== null) return;
+
+    setPending(mode);
+    setFailure(null);
+    const answered = await onChoose(mode);
+    setPending(null);
+    setFailure(
+      answered.ok
+        ? null
+        : answered.code === undefined
+          ? words.failed
+          : codeText(codes, answered.code).text,
+    );
+  }
+
+  const option = (mode: TrackLengthMode, label: string) => (
+    <button
+      type="button"
+      aria-pressed={decision === mode}
+      aria-busy={pending === mode}
+      disabled={pending !== null}
+      onClick={() => void choose(mode)}
+      className={`rounded-pill border px-6 py-3 text-sm transition-colors disabled:cursor-not-allowed ${
+        decision === mode
+          ? 'border-accent bg-surface-raised text-text'
+          : 'border-border bg-surface text-text-muted hover:text-text'
+      }`}
+    >
+      {pending === mode ? words.choosing : label}
+    </button>
+  );
+
+  return (
+    <div className="mt-gutter rounded-md border border-border bg-surface p-gutter">
+      <dl className="flex flex-wrap gap-x-gutter gap-y-2">
+        <div>
+          <dt className="text-sm text-text-muted">{words.trackLength}</dt>
+          <dd className="type-metric mt-2 text-text">{kilometres(track.lengthMeters, units)}</dd>
+        </div>
+        <div>
+          <dt className="text-sm text-text-muted">{words.usedLength}</dt>
+          <dd className="type-metric mt-2 text-estimated">
+            {kilometres(track.usedLengthMeters, units)}
+          </dd>
+        </div>
+      </dl>
+
+      <p className="mt-gutter max-w-[70ch] text-sm text-text-muted">{words.hint}</p>
+      {decision === null && <p className="mt-2 text-sm text-text-muted">{words.withheld}</p>}
+
+      <div className="mt-2 flex flex-wrap gap-2">
+        {option('plausible', words.keepTrimmed)}
+        {option('full', words.trustTrack)}
+      </div>
+
       <div role="status" className="empty:hidden">
         {failure !== null && <p className="mt-2 text-sm text-danger">{failure}</p>}
       </div>

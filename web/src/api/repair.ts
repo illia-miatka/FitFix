@@ -36,8 +36,8 @@ const trackCoverageField = 'trackCoverage';
 
 /**
  * Which of the two track lengths to end on, as `TrackLengthModes` names them (AD-17). `full` is
- * sent only after the user has answered the `TRACK_LONGER_THAN_ACTIVITY` warning, which is the
- * story that offers that choice — this one never sends it.
+ * sent only after the user has chosen to trust the track at the `TRACK_LONGER_THAN_ACTIVITY`
+ * warning (Story 3.5); a request that has asked nobody anything never sends it.
  */
 export type TrackLengthMode = 'plausible' | 'full';
 
