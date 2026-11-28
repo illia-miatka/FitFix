@@ -57,6 +57,14 @@ public class StaticServingTests : IDisposable
     }
 
     [Fact]
+    public async Task The_entry_document_is_revalidated_so_a_new_build_is_never_hidden_by_the_cache()
+    {
+        using var response = await Host.Client.GetAsync("/");
+
+        Assert.True(response.Headers.CacheControl?.NoCache);
+    }
+
+    [Fact]
     public async Task An_asset_arrives_as_itself_with_its_own_content_type()
     {
         using var response = await Host.Client.GetAsync("/assets/index-abc123.js");
