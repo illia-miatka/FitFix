@@ -437,6 +437,19 @@ describe('the clear control', () => {
   });
 });
 
+describe('the touch target of the clear control', () => {
+  it('is 44 px square, the size a thumb needs (WCAG 2.5.8)', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(answers(aTrack)));
+
+    render(<Zone role="track" />);
+    await choose('track', fitFile('route.gpx'));
+    await screen.findByText(`6,54 ${uk.inspection.kilometres}`);
+
+    // `size-11` is 2.75 rem, which is 44 px at the browser's default size; jsdom has no layout.
+    expect(screen.getByRole('button', { name: uk.dropzones.clear })).toHaveClass('size-11');
+  });
+});
+
 describe('the keyboard', () => {
   it('reaches the zone with Tab and opens the chooser with Enter and with Space', async () => {
     const opened = vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => {});

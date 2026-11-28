@@ -203,7 +203,7 @@ export function Dropzone({
           type="button"
           aria-label={clearLabel}
           onClick={() => onFileChange(null)}
-          className="absolute top-3 right-3 flex size-8 items-center justify-center rounded-pill border border-border bg-surface-raised text-text-muted transition-colors hover:text-text"
+          className="absolute top-2 right-2 flex size-11 items-center justify-center rounded-pill border border-border bg-surface-raised text-text-muted transition-colors hover:text-text"
         >
           <span aria-hidden="true">×</span>
         </button>
