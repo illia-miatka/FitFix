@@ -13,6 +13,14 @@ import {
 } from 'react-leaflet';
 
 import type { RepairSeries, TrustZone } from '../api/repair';
+import { drawnLine, stretchEnds, type Point } from '../drawing';
+import {
+  DrawingLayer,
+  DrawingToolbar,
+  useDrawingHistory,
+  type DrawAnswer,
+  type DrawTexts,
+} from './StretchDrawing';
 
 /** `uk.result.map` — every string of the map, Leaflet's own control labels included (AD-18). */
 export interface MapTexts {
@@ -25,6 +33,7 @@ export interface MapTexts {
   readonly measuredUntil: string;
   readonly zoomIn: string;
   readonly zoomOut: string;
+  readonly draw: DrawTexts;
   /** The basemap's credit as markup: Leaflet writes an attribution with innerHTML. */
   readonly attribution: string;
 }
@@ -109,7 +118,7 @@ export function routeMarkers(
  * The shape lives in an inner element: Leaflet positions a marker's own element with an inline
  * `transform`, which would silently replace the rotation that makes the measured pin a diamond.
  */
-function pin(kind: 'start' | 'finish' | 'measured') {
+function pin(kind: 'start' | 'finish' | 'measured' | 'end') {
   return divIcon({
     className: `route-pin route-pin-${kind}`,
     html: '<span class="route-pin-shape"></span>',
@@ -117,7 +126,12 @@ function pin(kind: 'start' | 'finish' | 'measured') {
   });
 }
 
-const pins = { start: pin('start'), finish: pin('finish'), measured: pin('measured') };
+const pins = {
+  start: pin('start'),
+  finish: pin('finish'),
+  measured: pin('measured'),
+  end: pin('end'),
+};
 
 /** Refits the view when the drawn points change, e.g. when the repeated repair answers. */
 function FitBounds({ bounds }: { readonly bounds: LatLngBounds }) {
@@ -146,24 +160,34 @@ function Labelled({ label }: { readonly label: string }) {
  *
  * Everything is reachable without a pointer: Leaflet pans on the arrow keys, the zoom buttons
  * and the markers are tab stops, and Enter on a marker opens its label.
+ *
+ * With `onDraw` the athlete can also draw the missing stretch (Story 5.4): points between the two
+ * ends of the estimated stretch, confirmed into a repeat of the repair. A successful answer ends
+ * the drawing; a failed one leaves it where it was.
  */
 export function RouteMap({
   series,
   zones,
   texts,
   className,
+  onDraw,
 }: {
   readonly series: RepairSeries;
   readonly zones: readonly TrustZone[];
   readonly texts: MapTexts;
   readonly className?: string;
+  readonly onDraw?: (line: Point[]) => Promise<DrawAnswer>;
 }) {
   const [showRepaired, setShowRepaired] = useState(true);
   const [showOriginal, setShowOriginal] = useState(true);
+  const [drawing, setDrawing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [history, dispatch] = useDrawingHistory();
 
   const { repaired, original } = series;
-  const route = useMemo<LatLngTuple[]>(
-    () => repaired.latitude.map((lat, i): LatLngTuple => [lat, repaired.longitude[i] ?? lat]),
+  const route = useMemo<Point[]>(
+    () => repaired.latitude.map((lat, i): Point => [lat, repaired.longitude[i] ?? lat]),
     [repaired],
   );
   const segments = useMemo(
@@ -173,6 +197,10 @@ export function RouteMap({
   const measuredIndex = useMemo(
     () => measuredEndIndex(zones, series.secondsFromStart),
     [zones, series.secondsFromStart],
+  );
+  const ends = useMemo(
+    () => stretchEnds(zones, series.secondsFromStart, route),
+    [zones, series.secondsFromStart, route],
   );
   // Fitted to everything the map can draw, so toggling a line never moves the view.
   const bounds = useMemo(
@@ -185,6 +213,24 @@ export function RouteMap({
 
   const hasOriginal = segments.length > 0;
   const markers = routeMarkers(route, measuredIndex);
+  const drawable = onDraw !== undefined && ends !== null;
+  const line = ends === null ? [] : drawnLine(ends, history.present);
+
+  function stopDrawing() {
+    setDrawing(false);
+    setMessage(null);
+    dispatch({ type: 'reset' });
+  }
+
+  async function confirmDrawing() {
+    if (onDraw === undefined || busy) return;
+    setBusy(true);
+    setMessage(null);
+    const answer = await onDraw(line);
+    setBusy(false);
+    if (answer.ok) stopDrawing();
+    else setMessage(answer.message ?? texts.draw.failed);
+  }
 
   return (
     <section className={className}>
@@ -205,41 +251,71 @@ export function RouteMap({
         )}
       </div>
 
-      <MapContainer
-        bounds={bounds}
-        boundsOptions={{ padding: [24, 24] }}
-        zoomControl={false}
-        attributionControl={false}
-        className="h-80 w-full rounded-lg border border-border md:h-105"
-      >
-        <Labelled label={texts.label} />
-        <FitBounds bounds={bounds} />
-        <TileLayer
-          url={tileUrl}
-          maxZoom={19}
-          attribution={texts.attribution}
+      <div className="relative isolate">
+        <MapContainer
+          bounds={bounds}
+          boundsOptions={{ padding: [24, 24] }}
+          zoomControl={false}
+          attributionControl={false}
+          className="h-80 w-full rounded-lg border border-border md:h-105"
+        >
+          <Labelled label={texts.label} />
+          <FitBounds bounds={bounds} />
+          <TileLayer url={tileUrl} maxZoom={19} attribution={texts.attribution} />
+          <ZoomControl zoomInTitle={texts.zoomIn} zoomOutTitle={texts.zoomOut} />
+          {/* No prefix: Leaflet's own is an English tooltip and a link the credit does not need. */}
+          <AttributionControl prefix={false} />
+
+          {hasOriginal &&
+            showOriginal &&
+            segments.map((positions, i) => (
+              <Polyline key={i} positions={positions} className="route-original" />
+            ))}
+          {showRepaired && <Polyline positions={route} className="route-repaired" />}
+
+          {markers.start !== undefined && (
+            <Pin position={markers.start} icon={pins.start} label={texts.start} />
+          )}
+          {markers.measured !== undefined && (
+            <Pin position={markers.measured} icon={pins.measured} label={texts.measuredUntil} />
+          )}
+          {markers.finish !== undefined && (
+            <Pin position={markers.finish} icon={pins.finish} label={texts.finish} />
+          )}
+
+          {drawing && ends !== null && (
+            <>
+              <Pin position={[...ends.start]} icon={pins.end} label={texts.draw.startEnd} />
+              {ends.finish !== undefined && (
+                <Pin position={[...ends.finish]} icon={pins.end} label={texts.draw.finishEnd} />
+              )}
+              <DrawingLayer line={line} points={history.present} dispatch={dispatch} />
+            </>
+          )}
+        </MapContainer>
+        {drawing && <div aria-hidden="true" className="route-crosshair" />}
+      </div>
+
+      {drawable && !drawing && (
+        <button
+          type="button"
+          onClick={() => setDrawing(true)}
+          className="mt-2 rounded-pill border border-border bg-surface px-4 py-2 text-sm text-text transition-colors hover:bg-surface-raised"
+        >
+          {texts.draw.begin}
+        </button>
+      )}
+      {drawable && drawing && (
+        <DrawingToolbar
+          texts={texts.draw}
+          history={history}
+          dispatch={dispatch}
+          busy={busy}
+          message={message}
+          onConfirm={() => void confirmDrawing()}
+          onCancel={stopDrawing}
         />
-        <ZoomControl zoomInTitle={texts.zoomIn} zoomOutTitle={texts.zoomOut} />
-        {/* No prefix: Leaflet's own is an English tooltip and a link the credit does not need. */}
-        <AttributionControl prefix={false} />
-
-        {hasOriginal &&
-          showOriginal &&
-          segments.map((positions, i) => (
-            <Polyline key={i} positions={positions} className="route-original" />
-          ))}
-        {showRepaired && <Polyline positions={route} className="route-repaired" />}
-
-        {markers.start !== undefined && (
-          <Pin position={markers.start} icon={pins.start} label={texts.start} />
-        )}
-        {markers.measured !== undefined && (
-          <Pin position={markers.measured} icon={pins.measured} label={texts.measuredUntil} />
-        )}
-        {markers.finish !== undefined && (
-          <Pin position={markers.finish} icon={pins.finish} label={texts.finish} />
-        )}
-      </MapContainer>
+      )}
     </section>
   );
 }

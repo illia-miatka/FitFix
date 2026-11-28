@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -9,6 +9,7 @@ import {
   aFragment,
   aReport,
   anOriginal,
+  aRoute,
   aTrack,
   answers,
   fitFile,
@@ -516,5 +517,105 @@ describe('starting again', () => {
 
     // Nothing was asked of the service by starting again: a repair is one request (AD-3).
     await waitFor(() => expect(repairCalls(fetched)).toBe(1));
+  });
+});
+
+/** jsdom's `File` has no `text()`, so the content is read the way a browser did before it had one. */
+function readText(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsText(file);
+  });
+}
+
+describe('drawing the missing stretch (Story 5.4)', () => {
+  const draw = uk.result.map.draw;
+  const withMap = aReport(aRoute());
+
+  async function atTheMap(repair: (request: RequestInit) => Response | Promise<Response>) {
+    const fetched = serviceDescribesEverything(repair);
+    render(<App />);
+    await choose(uk.dropzones.original.pick, fitFile('Run_4k_Chabany.fit'));
+    await choose(uk.dropzones.track.pick, fitFile('route.gpx'));
+    await screen.findByText(uk.inspection.length);
+    await userEvent.click(screen.getByRole('button', { name: uk.repair.action }));
+    await screen.findByRole('heading', { name: uk.result.title });
+    await userEvent.click(screen.getByRole('button', { name: draw.begin }));
+    // One point at the map centre, placed the way a keyboard does it.
+    fireEvent.keyDown(screen.getByRole('region', { name: uk.result.map.label }), { key: 'Enter' });
+    return fetched;
+  }
+
+  it('repeats the repair with the drawn line as the track and the coverage stated, with no file chosen', async () => {
+    const fetched = await atTheMap(() => answers(withMap));
+
+    await userEvent.click(screen.getByRole('button', { name: draw.confirm }));
+
+    // The drawing ended: the toolbar is gone and the way in is back.
+    expect(await screen.findByRole('button', { name: draw.begin })).toBeInTheDocument();
+    const repairs = fetched.mock.calls.filter(([url]) => url === '/api/repair');
+    expect(repairs).toHaveLength(2);
+
+    const body = (repairs[1] as [string, RequestInit])[1].body as FormData;
+    expect((body.get('original') as File).name).toBe('Run_4k_Chabany.fit');
+    expect(body.get('trackCoverage')).toBe('fragment');
+    const gpx = await readText(body.get('track') as File);
+    // The start end of the tail, the one point drawn: two positions and nothing else.
+    expect(gpx.match(/<trkpt /g)).toHaveLength(2);
+    // It starts where the watch's own position ends (record 5 of the fixture), not at an arbitrary
+    // end of the line: the order of the hand-off is what the repair anchors the fragment by.
+    const first = /<trkpt lat="([^"]+)" lon="([^"]+)"/.exec(gpx);
+    expect(Number(first?.[1])).toBeCloseTo(50.335, 6);
+    expect(Number(first?.[2])).toBeCloseTo(30.385, 6);
+  });
+
+  it('answering the fragment question after a drawing repeats the drawn track, not the one it replaced', async () => {
+    let asks = 0;
+    const fetched = await atTheMap(() => {
+      asks += 1;
+      return answers(asks === 2 ? aReport({ ...aRoute(), ...aFragment }) : withMap);
+    });
+    await userEvent.click(screen.getByRole('button', { name: draw.confirm }));
+
+    await userEvent.click(await screen.findByRole('button', { name: uk.result.confirmFragment }));
+    await screen.findByRole('button', { name: uk.result.download });
+
+    const repairs = fetched.mock.calls.filter(([url]) => url === '/api/repair');
+    expect(repairs).toHaveLength(3);
+    const body = (repairs[2] as [string, RequestInit])[1].body as FormData;
+    expect((body.get('track') as File).name).toBe('drawn-stretch.gpx');
+    expect(body.get('trackCoverage')).toBe('fragment');
+  });
+
+  it('a later answer repeats the drawn track and not the one it replaced', async () => {
+    const fetched = await atTheMap(() => answers(withMap));
+    await userEvent.click(screen.getByRole('button', { name: draw.confirm }));
+    await screen.findByRole('button', { name: draw.begin });
+
+    // Drawing again from the new result is a third request that still carries a drawn file.
+    await userEvent.click(screen.getByRole('button', { name: draw.begin }));
+    fireEvent.keyDown(screen.getByRole('region', { name: uk.result.map.label }), { key: 'Enter' });
+    await userEvent.click(screen.getByRole('button', { name: draw.confirm }));
+    await screen.findByRole('button', { name: draw.begin });
+
+    const repairs = fetched.mock.calls.filter(([url]) => url === '/api/repair');
+    expect(repairs).toHaveLength(3);
+    const body = (repairs[2] as [string, RequestInit])[1].body as FormData;
+    expect((body.get('track') as File).name).toBe('drawn-stretch.gpx');
+  });
+
+  it('a refusal keeps the drawing and states the service’s sentence', async () => {
+    let asks = 0;
+    await atTheMap(() => {
+      asks += 1;
+      return asks === 1 ? answers(withMap) : answers({ code: 'TRACK_TOO_FEW_POINTS' }, 400);
+    });
+
+    await userEvent.click(screen.getByRole('button', { name: draw.confirm }));
+
+    expect(await screen.findByText(uk.codes.TRACK_TOO_FEW_POINTS)).toBeInTheDocument();
+    expect(screen.getByText(`${draw.points} 1`)).toBeInTheDocument();
   });
 });

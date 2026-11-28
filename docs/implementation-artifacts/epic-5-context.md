@@ -1,6 +1,6 @@
 # Epic 5 Context: Repair Only What Broke
 
-<!-- Written 2026-11-23 by hand from the epics file, the architecture spine and the code, at the
+<!-- Reviewed 2026-11-28 against the planning artifacts (only the 3.2 basemap wording changed; nothing here). Written 2026-11-23 by hand from the epics file, the architecture spine and the code, at the
      end of the grooming session that cut this epic. Regenerate with compile-epic-context if the
      planning artifacts change. -->
 

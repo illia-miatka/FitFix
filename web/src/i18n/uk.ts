@@ -276,6 +276,23 @@ export const uk = {
       measuredUntil: 'Далі позицію розраховано',
       zoomIn: 'Збільшити масштаб',
       zoomOut: 'Зменшити масштаб',
+      /** Drawing the missing stretch on the map (Story 5.4). */
+      draw: {
+        begin: 'Домалювати ділянку',
+        toolbar: 'Малювання ділянки',
+        hint: 'Клікни на карті, щоб поставити точку, або наведи центр карти на потрібне місце й натисни Enter. Стрілки пересувають карту, Backspace прибирає останню точку, Ctrl+Z скасовує, Ctrl+Shift+Z повертає. Лінія піде від початку зламаної ділянки через твої точки.',
+        startEnd: 'Початок зламаної ділянки',
+        finishEnd: 'Кінець зламаної ділянки',
+        points: 'Точок:',
+        undo: 'Скасувати',
+        redo: 'Повернути',
+        removeLast: 'Прибрати останню',
+        clear: 'Очистити все',
+        confirm: 'Перемалювати по цих точках',
+        confirming: 'Перемальовую…',
+        cancel: 'Закрити малювання',
+        failed: 'Не вдалося перемалювати. Нічого не втрачено, спробуй ще раз.',
+      },
       /**
        * The basemap's credit, as OpenStreetMap asks for it. Markup because Leaflet writes an
        * attribution with innerHTML; the link opens apart and sends no referrer.

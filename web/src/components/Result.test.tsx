@@ -1,10 +1,11 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { CoverageAnswer } from '../App';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { Result } from './Result';
 import type { RepairReport } from '../api/repair';
+import type { Point } from '../drawing';
 import { aConfirmedFragment, aFragment, aReport, aRoute } from '../test/fixtures';
 import { uk } from '../i18n/uk';
 
@@ -23,6 +24,7 @@ function show(
   onStartAgain = () => {},
   onConfirmFragment: () => Promise<CoverageAnswer> = async () => ({ ok: true }),
   onUseWholeRoute: () => Promise<CoverageAnswer> = async () => ({ ok: true }),
+  onDrawStretch?: (line: Point[]) => Promise<CoverageAnswer>,
 ) {
   return render(
     <Result
@@ -34,6 +36,7 @@ function show(
       onStartAgain={onStartAgain}
       onConfirmFragment={onConfirmFragment}
       onUseWholeRoute={onUseWholeRoute}
+      onDrawStretch={onDrawStretch}
     />,
   );
 }
@@ -457,5 +460,46 @@ describe('the map', () => {
     expect(numbers.compareDocumentPosition(map) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(map.compareDocumentPosition(download) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(container.querySelectorAll('path.route-repaired')).toHaveLength(1);
+  });
+});
+
+describe('drawing the missing stretch from the result (Story 5.4)', () => {
+  const draw = uk.result.map.draw;
+
+  it('offers no drawing when the screen was given nothing to act on one with', () => {
+    show(aReport(aRoute()));
+    expect(screen.queryByRole('button', { name: draw.begin })).not.toBeInTheDocument();
+  });
+
+  it('says it in the map’s own words when the repeat never arrived', async () => {
+    show(
+      aReport(aRoute()),
+      undefined,
+      undefined,
+      undefined,
+      async (_line: Point[]) => ({ ok: false }),
+    );
+    await userEvent.click(screen.getByRole('button', { name: draw.begin }));
+    fireEvent.keyDown(screen.getByRole('region', { name: uk.result.map.label }), { key: 'Enter' });
+
+    await userEvent.click(screen.getByRole('button', { name: draw.confirm }));
+
+    expect(await screen.findByText(draw.failed)).toBeInTheDocument();
+  });
+
+  it('says it in the service’s sentence when the repeat was refused with a code', async () => {
+    show(
+      aReport(aRoute()),
+      undefined,
+      undefined,
+      undefined,
+      async (_line: Point[]) => ({ ok: false, code: 'TRACK_TOO_FEW_POINTS' }),
+    );
+    await userEvent.click(screen.getByRole('button', { name: draw.begin }));
+    fireEvent.keyDown(screen.getByRole('region', { name: uk.result.map.label }), { key: 'Enter' });
+
+    await userEvent.click(screen.getByRole('button', { name: draw.confirm }));
+
+    expect(await screen.findByText(uk.codes.TRACK_TOO_FEW_POINTS)).toBeInTheDocument();
   });
 });
