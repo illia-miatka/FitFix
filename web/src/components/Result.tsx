@@ -7,6 +7,7 @@ import { codeText } from '../errors';
 import type { Point } from '../drawing';
 import { duration, kilometres, pace } from '../format';
 import { RouteMap, type MapTexts } from './RouteMap';
+import { TrustChart, type ChartTexts } from './TrustChart';
 
 /** `uk.result` — every string of this screen. No component here holds a literal (AD-18). */
 export interface ResultTexts {
@@ -31,12 +32,14 @@ export interface ResultTexts {
   readonly startAgain: string;
   readonly strava: string;
   readonly map: MapTexts;
+  readonly chart: ChartTexts;
 }
 
 /** `uk.units` — what a distance and a pace are written in. */
 export interface UnitTexts {
   readonly kilometres: string;
   readonly perKilometre: string;
+  readonly kilometresPerHour: string;
   readonly decimalSeparator: string;
 }
 
@@ -198,6 +201,17 @@ export function Result({
                   : { ok: false, message: codeText(codes, answered.code).text };
               }
         }
+      />
+
+      {/* Under the map, over the actions: where the position was measured and where it was
+          calculated, against the pace and the heart rate (Story 3.3). */}
+      <TrustChart
+        className="mt-gutter"
+        series={report.series}
+        zones={report.zones}
+        sport={before.sport}
+        texts={texts.chart}
+        units={units}
       />
 
       <div className="mt-section flex flex-col items-start gap-gutter md:flex-row md:items-center">

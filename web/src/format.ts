@@ -23,6 +23,12 @@ export interface PaceTexts {
   readonly perKilometre: string;
 }
 
+/** What a speed is written in, with the separator a decimal takes. */
+export interface SpeedTexts {
+  readonly kilometresPerHour: string;
+  readonly decimalSeparator: string;
+}
+
 function pad(value: number): string {
   return String(value).padStart(2, '0');
 }
@@ -52,6 +58,11 @@ export function duration(seconds: number): string {
 export function pace(metres: number, seconds: number, texts: PaceTexts): string | null {
   if (!(metres > 0) || !(seconds > 0)) return null;
   return `${duration((seconds * 1000) / metres)} ${texts.perKilometre}`;
+}
+
+/** `12.34` km/h → `12,3 км/год`: one decimal, which is how a cyclist reads a speed. */
+export function speed(kilometresPerHour: number, texts: SpeedTexts): string {
+  return `${kilometresPerHour.toFixed(1).replace('.', texts.decimalSeparator)} ${texts.kilometresPerHour}`;
 }
 
 /**

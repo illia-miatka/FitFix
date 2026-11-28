@@ -147,9 +147,7 @@ describe('the warnings', () => {
 
     const callouts = screen.getByRole('list', { name: uk.result.warnings });
     expect(within(callouts).getByText(uk.codes.GPS_STALL_DETECTED)).toBeInTheDocument();
-    expect(
-      within(callouts).getByText(uk.codes.TRACK_LONGER_THAN_ACTIVITY),
-    ).toBeInTheDocument();
+    expect(within(callouts).getByText(uk.codes.TRACK_LONGER_THAN_ACTIVITY)).toBeInTheDocument();
 
     // Above the numbers (EXPERIENCE.md): the over-long track is the difference between a true
     // pace and a flattering one, so it is not read after the flattering number.
@@ -244,7 +242,12 @@ describe('the fragment gate', () => {
     // A lap run twice looks like a stretch of itself, so the detector can be wrong and the
     // athlete is the one who knows. A question with only a yes is not a question (Story 5.2).
     const whole = vi.fn(async () => ({ ok: true }));
-    show(aReport(aFragment), () => {}, async () => ({ ok: true }), whole);
+    show(
+      aReport(aFragment),
+      () => {},
+      async () => ({ ok: true }),
+      whole,
+    );
 
     await userEvent.click(screen.getByRole('button', { name: uk.result.rejectFragment }));
 
@@ -331,7 +334,7 @@ describe('the fragment gate', () => {
 });
 
 describe('a result made from a fragment', () => {
-  it('still names the stretch once the question is answered, and says the rest is the watch\'s', () => {
+  it("still names the stretch once the question is answered, and says the rest is the watch's", () => {
     show(aReport(aConfirmedFragment));
 
     // Once, with its seconds and its metres: the gate that asked is gone, this is the answer.
@@ -472,13 +475,9 @@ describe('drawing the missing stretch from the result (Story 5.4)', () => {
   });
 
   it('says it in the map’s own words when the repeat never arrived', async () => {
-    show(
-      aReport(aRoute()),
-      undefined,
-      undefined,
-      undefined,
-      async (_line: Point[]) => ({ ok: false }),
-    );
+    show(aReport(aRoute()), undefined, undefined, undefined, async (_line: Point[]) => ({
+      ok: false,
+    }));
     await userEvent.click(screen.getByRole('button', { name: draw.begin }));
     fireEvent.keyDown(screen.getByRole('region', { name: uk.result.map.label }), { key: 'Enter' });
 
@@ -488,18 +487,28 @@ describe('drawing the missing stretch from the result (Story 5.4)', () => {
   });
 
   it('says it in the service’s sentence when the repeat was refused with a code', async () => {
-    show(
-      aReport(aRoute()),
-      undefined,
-      undefined,
-      undefined,
-      async (_line: Point[]) => ({ ok: false, code: 'TRACK_TOO_FEW_POINTS' }),
-    );
+    show(aReport(aRoute()), undefined, undefined, undefined, async (_line: Point[]) => ({
+      ok: false,
+      code: 'TRACK_TOO_FEW_POINTS',
+    }));
     await userEvent.click(screen.getByRole('button', { name: draw.begin }));
     fireEvent.keyDown(screen.getByRole('region', { name: uk.result.map.label }), { key: 'Enter' });
 
     await userEvent.click(screen.getByRole('button', { name: draw.confirm }));
 
     expect(await screen.findByText(uk.codes.TRACK_TOO_FEW_POINTS)).toBeInTheDocument();
+  });
+});
+
+describe('the trust chart on the result (Story 3.3)', () => {
+  it('sits on the result, named for assistive technology', () => {
+    show(aReport(aRoute()));
+    expect(screen.getByRole('img', { name: uk.result.chart.alt })).toBeInTheDocument();
+  });
+
+  it('is told the sport of the Original: a cyclist sees a speed', () => {
+    const report = aReport(aRoute());
+    show({ ...report, before: { ...report.before, sport: 'cycling' } });
+    expect(screen.getAllByText(uk.result.chart.speedRepaired).length).toBeGreaterThan(0);
   });
 });

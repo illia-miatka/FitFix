@@ -194,3 +194,7 @@ Append-only: add entries, never rewrite existing ones.
 - source_spec: `spec-5-4-draw-stretch.md`
   summary: Choose which estimated stretch to draw when a run has several.
   evidence: `stretchEnds` takes the first estimated zone that follows a measured one. The real Chabany pair has three estimated zones (21-179 s, 1698-1903 s, 1930-2009 s), so only the first can be redrawn from the map, and after a drawing it stays estimated and first. Needs a way to pick a stretch (click it, or a list), and a decision on whether one drawing request can carry several fragments, which the server's single-fragment attachment (AD-27) does not do today.
+
+- source_spec: `spec-3-3-trust-chart.md`
+  summary: Code-split the chart (and the map) out of the main bundle.
+  evidence: Adding Recharts took the single bundle to about 843 kB and `vite build` warns about chunks over 500 kB. The result screen is the only user of Recharts and Leaflet, so a lazy import of the result route would keep the first screen small; not done here because the screen has no router and the gain is a few hundred milliseconds on a first load.

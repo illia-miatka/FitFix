@@ -96,6 +96,7 @@ export type DiagnosticCode = keyof typeof codeTexts;
 const units = {
   kilometres: 'км',
   perKilometre: '/км',
+  kilometresPerHour: 'км/год',
   decimalSeparator: ',',
 } as const;
 
@@ -264,6 +265,21 @@ export const uk = {
      * The route map (Story 3.2). Everything Leaflet would have written in English is here: its
      * zoom titles, its attribution prefix and its popup close button are all replaced by these.
      */
+    /** The pace, heart-rate and trust-zone chart (Story 3.3). */
+    chart: {
+      title: 'Темп, пульс і де позиція була виміряна',
+      /** The chart's text alternative: what it shows, since the lines themselves are a picture. */
+      alt: 'Графік темпу й пульсу за часом, під ним смуга зон довіри',
+      paceRepaired: 'Темп виправлений',
+      paceOriginal: 'Темп оригіналу',
+      speedRepaired: 'Швидкість виправлена',
+      speedOriginal: 'Швидкість оригіналу',
+      heartRate: 'Пульс',
+      heartRateUnit: 'уд/хв',
+      zones: 'Зони довіри',
+      measured: 'Позицію виміряв годинник',
+      estimated: 'Позицію розраховано за еталонним треком',
+    },
     map: {
       /** The map's own accessible name, with the two keys a keyboard user needs. */
       label: 'Карта маршруту. Стрілки пересувають карту, плюс і мінус змінюють масштаб.',
