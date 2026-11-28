@@ -102,7 +102,18 @@ public static class FitFixApi
         app.Use((context, next) => ServeSpaAsync(context, next, webRoot));
         // No UseDefaultFiles: the rewrite above already answers "/" with index.html, and where
         // there is no index.html there is no default file to find either.
-        app.UseStaticFiles();
+        // The entry document must be revalidated on every load: it names the hashed bundle, and
+        // without a Cache-Control header a browser may reuse a days-old copy by heuristic and keep
+        // running the previous build after the image was replaced. The hashed assets beside it
+        // change name with their content, so they stay cacheable.
+        app.UseStaticFiles(new StaticFileOptions
+        {
+            OnPrepareResponse = context =>
+            {
+                if (string.Equals(context.File.Name, "index.html", StringComparison.OrdinalIgnoreCase))
+                    context.Context.Response.Headers.CacheControl = "no-cache";
+            },
+        });
 
         app.MapGet("/health", () => Results.Ok(new HealthResponse("ok")));
 
